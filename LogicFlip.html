@@ -123,6 +123,7 @@
 <script type="module">
 import * as THREE from 'three';
 
+const MAX_GRID_SIZE = 6;
 let GRID_SIZE = 3;
 const CUBE_SIZE = 0.72, CELL = 1.0, DUR = 300;
 const FACE_NORMALS = [
@@ -154,6 +155,13 @@ let animData = {
 let devForceDual = null;
 let devForceKth = null;
 let devPanelOpen = false;
+
+// 新增：当前关卡地图快照（用于步数不符时原地重试）
+let currentMapData = null;
+// 新增：预生成的下一关数据
+let nextLevelData = null;
+let nextLevelFor = null;
+let prepareTimer = null;
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
@@ -227,22 +235,15 @@ function bfsDualSolution(start1, start2, target1, target2, ban) {
     const stateKey = (p1,p2,q1,q2) => `${p1.x},${p1.y},${p2.x},${p2.y},${quatStr(q1)},${quatStr(q2)}`;
     const startKey = stateKey(start1.pos, start2.pos, start1.quat, start2.quat);
     const queue = [{pos1:start1.pos, pos2:start2.pos, quat1:start1.quat.clone(), quat2:start2.quat.clone()}];
-    const visited = new Map();
-    visited.set(startKey, null);
+    const visited = new Map(); visited.set(startKey, null);
     const dirs = [{dx:-1,dy:0,name:'←'},{dx:1,dy:0,name:'→'},{dx:0,dy:-1,name:'↑'},{dx:0,dy:1,name:'↓'}];
-    
     while(queue.length) {
         const cur = queue.shift();
         const curKey = stateKey(cur.pos1, cur.pos2, cur.quat1, cur.quat2);
         if(cur.pos1.x===target1.x && cur.pos1.y===target1.y && topFace(cur.quat1)===2 &&
            cur.pos2.x===target2.x && cur.pos2.y===target2.y && topFace(cur.quat2)===2) {
-            const path = [];
-            let key = curKey;
-            while(visited.get(key)) {
-                const {prevKey, dir} = visited.get(key);
-                path.unshift(dir);
-                key = prevKey;
-            }
+            const path = []; let key = curKey;
+            while(visited.get(key)) { const {prevKey, dir} = visited.get(key); path.unshift(dir); key = prevKey; }
             return path;
         }
         for(const d of dirs) {
@@ -280,20 +281,14 @@ function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY, ex
     const key = (x,y,q) => `${x},${y},${quatStr(q)}`;
     const startKey = key(startX, startY, startQuat);
     const queue = [{x:startX, y:startY, quat:startQuat.clone()}];
-    const visited = new Map();
-    visited.set(startKey, null);
+    const visited = new Map(); visited.set(startKey, null);
     const dirs = [{dx:-1,dy:0,name:'←'},{dx:1,dy:0,name:'→'},{dx:0,dy:-1,name:'↑'},{dx:0,dy:1,name:'↓'}];
     while(queue.length) {
         const cur = queue.shift();
         const curKey = key(cur.x, cur.y, cur.quat);
         if(cur.x === targetX && cur.y === targetY && topFace(cur.quat) === 2 && checkExtraGoal(cur.quat, extraGoal)) {
-            const path = [];
-            let k = curKey;
-            while(visited.get(k)) {
-                const {prevKey, dir} = visited.get(k);
-                path.unshift(dir);
-                k = prevKey;
-            }
+            const path = []; let k = curKey;
+            while(visited.get(k)) { const {prevKey, dir} = visited.get(k); path.unshift(dir); k = prevKey; }
             return path;
         }
         for(const d of dirs) {
@@ -308,9 +303,10 @@ function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY, ex
     return null;
 }
 
-function findPaths(sx,sy,sq,ban,tx,ty,extraGoal){
+function findAllPaths(sx,sy,sq,ban,tx,ty,extraGoal){
     const paths=new Map(); const vis=new Set(); const dirs=[{dx:-1,dy:0},{dx:1,dy:0},{dx:0,dy:-1},{dx:0,dy:1}];
     function dfs(x,y,q,len){
+        if(len > 40) return;
         if(x===tx&&y===ty&&topFace(q)===2&&checkExtraGoal(q,extraGoal)){
             if(!paths.has(len))paths.set(len,0); paths.set(len,paths.get(len)+1); return;
         }
@@ -324,58 +320,78 @@ function findPaths(sx,sy,sq,ban,tx,ty,extraGoal){
     vis.add(`${sx},${sy}`); dfs(sx,sy,sq.clone(),0); return paths;
 }
 
+function getRecommendedSize(level) {
+    if (level <= 3) return 3;
+    if (level <= 8) return 4;
+    if (level <= 16) return 5;
+    return 6;
+}
+
 function genSingle(level,size){
     const total=size*size;
-    const banCount = size<=3 ? Math.min(total-2, Math.floor((level-1)/3)) : Math.min(total-2, Math.floor((level-1)/1.5));
-    if(banCount>=total-1)return null;
-    const minSteps = size<=3 ? (level*2+1) : (level*3+2);
+    const maxBanRatio = size >= 6 ? 0.33 : (size >= 5 ? 0.35 : 0.6);
+    const maxBan = Math.floor(total * maxBanRatio);
+    const banCountBase = size <= 3 ? Math.floor((level-1)/3) : Math.floor((level-1)/2);
+    const banCount = Math.min(total-2, Math.min(maxBan, banCountBase));
     const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
     const extra = size>=4 ? { face: 1, dir: 'right' } : null;
-    for(let a=0;a<800;a++){
+    const useKShort = size <= 4;
+    const minStepsForLarge = size >= 6 ? 5 : (size >= 5 ? 4 : 2);
+
+    for(let a=0;a<1000;a++){
         const sh=[...all].sort(()=>Math.random()-0.5), ban=new Set();
         for(let i=0;i<banCount;i++)ban.add(`${sh[i].x},${sh[i].y}`);
         const avail=all.filter(p=>!ban.has(`${p.x},${p.y}`)); if(avail.length<2)continue;
         const start=avail[Math.floor(Math.random()*avail.length)];
         const tars=avail.filter(p=>p.x!==start.x||p.y!==start.y);
-        const target=tars[Math.floor(Math.random()*tars.length)];
+        if(!tars.length) continue;
+        const manhattanDist = (p) => Math.abs(p.x-start.x)+Math.abs(p.y-start.y);
+        tars.sort((a,b)=>manhattanDist(b)-manhattanDist(a));
+        const topTars = tars.slice(0, Math.max(Math.floor(tars.length*0.6),1));
+        const target=topTars[Math.floor(Math.random()*topTars.length)];
         const face=Math.floor(Math.random()*6);
         const q=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[face],new THREE.Vector3(0,1,0)).normalize();
-        const paths=findPaths(start.x,start.y,q,ban,target.x,target.y,extra);
-        if(!paths.size)continue; const lens=[...paths.keys()].sort((a,b)=>a-b);
-        if(lens[0] < minSteps)continue;
-        let chosen,type;
-        const forceKth = devForceKth;
-        if(forceKth === true && lens.length > 1) {
-            const kc = lens.filter(l => l > lens[0]);
-            chosen = kc[Math.floor(Math.random() * kc.length)];
-            type = 'kth';
-        } else if(forceKth === false) {
-            chosen = lens[0];
-            type = 'shortest';
-        } else {
-            if(lens.length > 1 && Math.random() < 0.7) {
+
+        if(useKShort){
+            const paths=findAllPaths(start.x,start.y,q,ban,target.x,target.y,extra);
+            if(!paths.size) continue; const lens=[...paths.keys()].sort((a,b)=>a-b);
+            if(lens[0] < minStepsForLarge) continue;
+            let chosen,type;
+            const forceKth = devForceKth;
+            if(forceKth === true && lens.length > 1) {
                 const kc = lens.filter(l => l > lens[0]);
+                if(!kc.length) continue;
                 chosen = kc[Math.floor(Math.random() * kc.length)];
                 type = 'kth';
+            } else if(forceKth === false) {
+                chosen = lens[0]; type = 'shortest';
             } else {
-                chosen = lens[0];
-                type = 'shortest';
+                if(lens.length > 1 && Math.random() < 0.7) {
+                    const kc = lens.filter(l => l > lens[0]);
+                    chosen = kc[Math.floor(Math.random() * kc.length)];
+                    type = 'kth';
+                } else {
+                    chosen = lens[0]; type = 'shortest';
+                }
             }
+            return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type,extraGoal:extra};
+        } else {
+            const solution = findSingleSolution(start.x,start.y,q,ban,target.x,target.y,extra);
+            if(!solution || solution.length < minStepsForLarge) continue;
+            return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:solution.length,targetType:'shortest',extraGoal:extra};
         }
-        return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type,extraGoal:extra};
     }
     return null;
 }
 
 function genDual(size){
     const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
-    for(let a=0;a<500;a++){
-        const banCount = Math.min(size*size-4, Math.floor(Math.random()*Math.min(4,size*size/3))+1);
-        const sh=[...all].sort(()=>Math.random()-0.5);
-        const ban = new Set();
+    const maxBanCount = size >= 6 ? Math.floor(size*size*0.25) : Math.floor(size*size/3);
+    for(let a=0;a<600;a++){
+        const banCount = Math.min(size*size-4, Math.floor(Math.random()*maxBanCount)+1);
+        const sh=[...all].sort(()=>Math.random()-0.5); const ban = new Set();
         for(let i=0;i<banCount;i++) ban.add(`${sh[i].x},${sh[i].y}`);
-        const avail = all.filter(p=>!ban.has(`${p.x},${p.y}`));
-        if(avail.length<4) continue;
+        const avail = all.filter(p=>!ban.has(`${p.x},${p.y}`)); if(avail.length<4) continue;
         const s1=avail[Math.floor(Math.random()*avail.length)];
         const rem1=avail.filter(p=>p.x!==s1.x||p.y!==s1.y);
         const s2=rem1[Math.floor(Math.random()*rem1.length)];
@@ -393,67 +409,231 @@ function genDual(size){
     return null;
 }
 
-function loadLevel(level){
-    if(level<=0)level=1;
-    const dualProbability = Math.min(0.8, 0.15 + level * 0.05);
-    if(devForceDual === true) gameMode = 'dual';
-    else if(devForceDual === false) gameMode = 'single';
-    else gameMode = Math.random() < dualProbability ? 'dual' : 'single';
-
-    if(gameMode==='single'){
-        const gen=genSingle(level,GRID_SIZE);
-        if(!gen){
-            GRID_SIZE++; buildGrid(); updateCam();
-            showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}，保持当前关卡`, 'info', 2500);
-            setTimeout(()=>loadLevel(level), 2500);
-            return;
-        }
-        currentLevel=level; steps=0; isLevelComplete=false; isAnimating=false;
-        banSet=gen.ban; targetSteps=gen.targetSteps; targetType=gen.targetType;
-        targetPos={x:gen.targetX,y:gen.targetY}; cubePos={x:gen.startX,y:gen.startY};
-        extraGoal = gen.extraGoal || null;
-        cubeGroup1.quaternion.identity().normalize();
-        if(gen.startFace!==2) cubeGroup1.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[gen.startFace],new THREE.Vector3(0,1,0)));
-        cubeGroup1.position.set(cubePos.x+0.5,CUBE_SIZE/2,cubePos.y+0.5);
-        cubeGroup2.visible=false;
-        addBan(banGroup1,banSet);
-        setTarget(targetGroup1,targetPos.x,targetPos.y,0x22c55e);
-        clear(targetGroup2);
-        startState={x:cubePos.x,y:cubePos.y,quat:cubeGroup1.quaternion.clone()};
+function saveMapSnapshot() {
+    if (gameMode === 'single') {
+        currentMapData = {
+            type: 'single',
+            banSet: new Set(banSet),
+            targetPos: { ...targetPos },
+            targetSteps: targetSteps,
+            targetType: targetType,
+            extraGoal: extraGoal ? { ...extraGoal } : null,
+            startState: {
+                x: startState.x,
+                y: startState.y,
+                quat: startState.quat.clone()
+            }
+        };
     } else {
-        const gen=genDual(GRID_SIZE);
-        if(!gen){
-            GRID_SIZE++; buildGrid(); updateCam();
-            showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}，保持当前关卡`, 'info', 2500);
-            setTimeout(()=>loadLevel(level), 2500);
-            return;
-        }
-        currentLevel=level; steps=0; isLevelComplete=false; isAnimating=false;
-        globalBan = gen.ban;
-        c1.pos=gen.c1.pos; c1.target=gen.c1.target; c1.quat.copy(gen.c1.quat);
-        c2.pos=gen.c2.pos; c2.target=gen.c2.target; c2.quat.copy(gen.c2.quat);
-        cubeGroup1.position.set(c1.pos.x+0.5,CUBE_SIZE/2,c1.pos.y+0.5); cubeGroup1.quaternion.copy(c1.quat);
-        cubeGroup2.position.set(c2.pos.x+0.5,CUBE_SIZE/2,c2.pos.y+0.5); cubeGroup2.quaternion.copy(c2.quat);
-        cubeGroup2.visible=true;
+        currentMapData = {
+            type: 'dual',
+            globalBan: new Set(globalBan),
+            c1start: { pos: { ...c1.pos }, quat: c1.quat.clone(), target: { ...c1.target } },
+            c2start: { pos: { ...c2.pos }, quat: c2.quat.clone(), target: { ...c2.target } }
+        };
+    }
+}
+
+function resetCurrentMap() {
+    if (!currentMapData) { loadLevel(currentLevel); return; }
+    steps = 0;
+    isLevelComplete = false;
+    isAnimating = false;
+    if (currentMapData.type === 'single') {
+        const data = currentMapData;
+        banSet = new Set(data.banSet);
+        targetPos = { ...data.targetPos };
+        targetSteps = data.targetSteps;
+        targetType = data.targetType;
+        extraGoal = data.extraGoal ? { ...data.extraGoal } : null;
+        cubePos = { x: data.startState.x, y: data.startState.y };
+        cubeGroup1.position.set(cubePos.x + 0.5, CUBE_SIZE/2, cubePos.y + 0.5);
+        cubeGroup1.quaternion.copy(data.startState.quat);
+        startState = { x: cubePos.x, y: cubePos.y, quat: cubeGroup1.quaternion.clone() };
+        addBan(banGroup1, banSet);
+        setTarget(targetGroup1, targetPos.x, targetPos.y, 0x22c55e);
+        clear(targetGroup2);
+        cubeGroup2.visible = false;
+    } else {
+        const data = currentMapData;
+        globalBan = new Set(data.globalBan);
+        c1.pos = { ...data.c1start.pos };
+        c1.quat.copy(data.c1start.quat);
+        c1.target = { ...data.c1start.target };
+        c2.pos = { ...data.c2start.pos };
+        c2.quat.copy(data.c2start.quat);
+        c2.target = { ...data.c2start.target };
+        cubeGroup1.position.set(c1.pos.x+0.5, CUBE_SIZE/2, c1.pos.y+0.5);
+        cubeGroup1.quaternion.copy(c1.quat);
+        cubeGroup2.position.set(c2.pos.x+0.5, CUBE_SIZE/2, c2.pos.y+0.5);
+        cubeGroup2.quaternion.copy(c2.quat);
+        cubeGroup2.visible = true;
         addBan(banGroup1, globalBan);
         setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
         setTarget(targetGroup2, c2.target.x, c2.target.y, 0x84cc16);
         extraGoal = null;
     }
-    buildGrid(); updateUI(); hideMessage(); updateGoalIndicator();
-    document.getElementById('mode-display').textContent = gameMode==='single'?'单人':'双人';
+    updateUI();
+    updateGoalIndicator();
+    hideMessage();
+}
+
+function applySingleGen(gen, level) {
+    currentLevel = level; steps = 0; isLevelComplete = false; isAnimating = false;
+    banSet = gen.ban; targetSteps = gen.targetSteps; targetType = gen.targetType;
+    targetPos = { x: gen.targetX, y: gen.targetY };
+    cubePos = { x: gen.startX, y: gen.startY };
+    extraGoal = gen.extraGoal || null;
+    cubeGroup1.quaternion.identity().normalize();
+    if (gen.startFace !== 2) cubeGroup1.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[gen.startFace], new THREE.Vector3(0,1,0)));
+    cubeGroup1.position.set(cubePos.x+0.5, CUBE_SIZE/2, cubePos.y+0.5);
+    cubeGroup2.visible = false;
+    addBan(banGroup1, banSet);
+    setTarget(targetGroup1, targetPos.x, targetPos.y, 0x22c55e);
+    clear(targetGroup2);
+    startState = { x: cubePos.x, y: cubePos.y, quat: cubeGroup1.quaternion.clone() };
+    saveMapSnapshot();
+    buildGrid();
+    updateUI();
+    hideMessage();
+    updateGoalIndicator();
+    document.getElementById('mode-display').textContent = '单人';
     const extraDot = document.getElementById('extra-goal-dot');
-    if(gameMode==='single' && extraGoal) {
-        extraDot.style.display = 'inline-block';
-        extraDot.style.borderColor = '#22c55e';
-    } else {
-        extraDot.style.display = 'none';
-    }
-    if(gameMode==='single'){
-        const typeText = targetType==='shortest'?'最短路径':'K短路径';
-        document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
-    }
+    if (extraGoal) { extraDot.style.display = 'inline-block'; extraDot.style.borderColor = '#22c55e'; }
+    else { extraDot.style.display = 'none'; }
+    const typeText = targetType === 'shortest' ? '最短路径' : 'K短路径';
+    document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
     saveProgress();
+}
+
+function applyDualGen(gen, level) {
+    currentLevel = level; steps = 0; isLevelComplete = false; isAnimating = false;
+    globalBan = gen.ban;
+    c1.pos = gen.c1.pos; c1.target = gen.c1.target; c1.quat.copy(gen.c1.quat);
+    c2.pos = gen.c2.pos; c2.target = gen.c2.target; c2.quat.copy(gen.c2.quat);
+    cubeGroup1.position.set(c1.pos.x+0.5, CUBE_SIZE/2, c1.pos.y+0.5); cubeGroup1.quaternion.copy(c1.quat);
+    cubeGroup2.position.set(c2.pos.x+0.5, CUBE_SIZE/2, c2.pos.y+0.5); cubeGroup2.quaternion.copy(c2.quat);
+    cubeGroup2.visible = true;
+    addBan(banGroup1, globalBan);
+    setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
+    setTarget(targetGroup2, c2.target.x, c2.target.y, 0x84cc16);
+    extraGoal = null;
+    saveMapSnapshot();
+    buildGrid();
+    updateUI();
+    hideMessage();
+    updateGoalIndicator();
+    document.getElementById('mode-display').textContent = '双人';
+    document.getElementById('extra-goal-dot').style.display = 'none';
+    saveProgress();
+}
+
+function prepareNextLevel(level) {
+    if (prepareTimer) clearTimeout(prepareTimer);
+    prepareTimer = setTimeout(() => {
+        const size = Math.min(getRecommendedSize(level), MAX_GRID_SIZE);
+        let gen = null;
+        const dualProb = Math.min(0.75, 0.15 + level * 0.04);
+        const forceDual = devForceDual === true || (devForceDual === null && Math.random() < dualProb);
+        if (forceDual) {
+            for (let i = 0; i < 10; i++) {
+                gen = genDual(size);
+                if (gen) break;
+            }
+            if (!gen) {
+                gen = genSingle(level, size);
+                if (gen) gen._forceSingle = true;
+            }
+        } else {
+            gen = genSingle(level, size);
+            if (!gen) {
+                for (let i = 0; i < 5; i++) {
+                    gen = genDual(size);
+                    if (gen) { gen._forceDual = true; break; }
+                }
+            }
+        }
+        nextLevelData = gen;
+        nextLevelFor = level;
+    }, 0);
+}
+
+function loadLevel(level) {
+    if (level <= 0) level = 1;
+    const recommendedSize = getRecommendedSize(level);
+    if (GRID_SIZE < recommendedSize) {
+        GRID_SIZE = Math.min(recommendedSize, MAX_GRID_SIZE);
+        buildGrid();
+        updateCam();
+    }
+
+    if (nextLevelFor === level && nextLevelData) {
+        const gen = nextLevelData;
+        nextLevelData = null;
+        nextLevelFor = null;
+        if (gen._forceSingle || (!gen._forceDual && !gen.c1)) {
+            applySingleGen(gen, level);
+        } else {
+            applyDualGen(gen, level);
+        }
+        prepareNextLevel(level + 1);
+        return;
+    }
+
+    const dualProb = Math.min(0.75, 0.15 + level * 0.04);
+    if (devForceDual === true) gameMode = 'dual';
+    else if (devForceDual === false) gameMode = 'single';
+    else gameMode = Math.random() < dualProb ? 'dual' : 'single';
+
+    if (gameMode === 'single') {
+        const gen = genSingle(level, GRID_SIZE);
+        if (!gen) {
+            if (GRID_SIZE < MAX_GRID_SIZE) {
+                GRID_SIZE++;
+                buildGrid();
+                updateCam();
+                showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}`, 'info', 2000);
+                setTimeout(() => loadLevel(level), 2000);
+            } else {
+                showMessage('正在重新生成6×6关卡...', 'info', 1500);
+                setTimeout(() => {
+                    const retryGen = genSingle(level, GRID_SIZE);
+                    if (retryGen) applySingleGen(retryGen, level);
+                    else {
+                        const fallbackGen = genSingle(1, GRID_SIZE);
+                        if (fallbackGen) { applySingleGen(fallbackGen, level); showMessage('使用简化配置生成关卡', 'info', 2000); }
+                    }
+                }, 1500);
+            }
+            return;
+        }
+        applySingleGen(gen, level);
+    } else {
+        const gen = genDual(GRID_SIZE);
+        if (!gen) {
+            if (GRID_SIZE < MAX_GRID_SIZE) {
+                GRID_SIZE++;
+                buildGrid();
+                updateCam();
+                showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}`, 'info', 2000);
+                setTimeout(() => loadLevel(level), 2000);
+            } else {
+                showMessage('正在重新生成6×6双人关卡...', 'info', 1500);
+                setTimeout(() => {
+                    const retryGen = genDual(GRID_SIZE);
+                    if (retryGen) applyDualGen(retryGen, level);
+                    else {
+                        gameMode = 'single';
+                        const fallbackGen = genSingle(1, GRID_SIZE);
+                        if (fallbackGen) { applySingleGen(fallbackGen, level); showMessage('双人模式生成失败，切换为单人', 'info', 2000); }
+                    }
+                }, 1500);
+            }
+            return;
+        }
+        applyDualGen(gen, level);
+    }
+    prepareNextLevel(level + 1);
 }
 
 function roll(dx,dy){
@@ -518,8 +698,13 @@ function checkWin(){
             showMessage(`完成！${desc}（${steps}步）`, 'success', 2000);
             updateUI(); saveProgress();
             setTimeout(()=>loadLevel(currentLevel+1),2000);
-        }else if(at&&red&&!extraOk){ showMessage('额外朝向不符合要求', 'fail', 1500); setTimeout(resetLevel,1500); }
-        else if(at&&red){ showMessage(`步数不符（目标${targetSteps}步，当前${steps}步）`, 'fail', 1800); setTimeout(resetLevel,1800); }
+        }else if(at&&red&&!extraOk){
+            showMessage('额外朝向不符合要求', 'fail', 1500);
+            setTimeout(resetCurrentMap, 1500);
+        }else if(at&&red){
+            showMessage(`步数不符（目标${targetSteps}步，当前${steps}步）`, 'fail', 1800);
+            setTimeout(resetCurrentMap, 1800);
+        }
     }else{
         const ok1=c1.pos.x===c1.target.x&&c1.pos.y===c1.target.y&&topFace(c1.quat)===2;
         const ok2=c2.pos.x===c2.target.x&&c2.pos.y===c2.target.y&&topFace(c2.quat)===2;
@@ -597,7 +782,7 @@ function loadProgress(){
     if(!raw) return false;
     try {
         const data = JSON.parse(raw);
-        GRID_SIZE = data.GRID_SIZE || 3;
+        GRID_SIZE = Math.min(data.GRID_SIZE || 3, MAX_GRID_SIZE);
         gameMode = data.gameMode || 'single';
         currentLevel = data.currentLevel || 1;
         steps = data.steps || 0;
@@ -622,6 +807,7 @@ function loadProgress(){
             addBan(banGroup1, banSet);
             setTarget(targetGroup1, targetPos.x, targetPos.y, 0x22c55e);
             clear(targetGroup2);
+            saveMapSnapshot();
         } else {
             globalBan = new Set(data.globalBan || []);
             c1.pos = data.c1pos || {x:0,y:0};
@@ -639,6 +825,7 @@ function loadProgress(){
             setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
             setTarget(targetGroup2, c2.target.x, c2.target.y, 0x84cc16);
             extraGoal = null;
+            saveMapSnapshot();
         }
         buildGrid(); updateCam(); updateUI(); updateGoalIndicator();
         document.getElementById('mode-display').textContent = gameMode==='single'?'单人':'双人';
@@ -651,17 +838,13 @@ function loadProgress(){
     } catch(e){ console.error('存档加载失败', e); return false; }
 }
 
-let devClickCount = 0;
-let devClickTimer = null;
+let devClickCount = 0, devClickTimer = null;
 document.querySelector('.hud-left span:first-child').addEventListener('click', () => {
     devClickCount++;
     if(devClickCount >= 5) {
-        devClickCount = 0;
-        devPanelOpen = !devPanelOpen;
-        const panel = document.getElementById('dev-panel');
-        panel.classList.toggle('show', devPanelOpen);
-        updateDevPanelButtons();
-        saveProgress();
+        devClickCount = 0; devPanelOpen = !devPanelOpen;
+        document.getElementById('dev-panel').classList.toggle('show', devPanelOpen);
+        updateDevPanelButtons(); saveProgress();
     }
     clearTimeout(devClickTimer);
     devClickTimer = setTimeout(() => { devClickCount = 0; }, 1500);
@@ -698,23 +881,17 @@ document.getElementById('dev-close').addEventListener('click', () => {
 
 document.getElementById('hint-lock-btn').addEventListener('click', () => {
     if (hintDisabled) return;
-    hintDisabled = true;
-    updateUI();
+    hintDisabled = true; updateUI();
     showMessage('提示功能已禁用（刷新后恢复）', 'info', 1500);
 });
 
 document.getElementById('unsolvable-btn').addEventListener('click', () => {
     if(isAnimating||isLevelComplete) return;
-    if(hintDisabled && !devPanelOpen) {
-        showMessage('提示功能已禁用', 'fail', 1000);
-        return;
-    }
-
+    if(hintDisabled && !devPanelOpen) { showMessage('提示功能已禁用', 'fail', 1000); return; }
     if(gameMode === 'single') {
         const atTarget = cubePos.x === targetPos.x && cubePos.y === targetPos.y;
         const redUp = topFace(cubeGroup1.quaternion) === 2;
         const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
-
         if(atTarget && redUp && extraOk && steps !== targetSteps) {
             const solution = findSingleSolution(startState.x, startState.y, startState.quat, banSet, targetPos.x, targetPos.y, extraGoal);
             if(solution && solution.length) {
@@ -724,38 +901,17 @@ document.getElementById('unsolvable-btn').addEventListener('click', () => {
             }
             return;
         }
-
-        const paths = findPaths(startState.x,startState.y,startState.quat,banSet,targetPos.x,targetPos.y,extraGoal);
-        const lens = [...paths.keys()].sort((a,b)=>a-b);
-        if(devPanelOpen) {
-            showMessage(lens.length ? `可达路径长度：${lens.join(', ')}` : '此关卡无解', 'trick', 3000);
-        } else {
-            if(lens.length){
-                showMessage(`存在解，可达路径长度：${lens.join(', ')}`, 'trick', 4000);
-            } else {
-                showMessage('确认无解，进入下一关', 'info', 1500);
-                setTimeout(()=>loadLevel(currentLevel+1),1500);
-            }
-        }
+        const solution = findSingleSolution(startState.x, startState.y, startState.quat, banSet, targetPos.x, targetPos.y, extraGoal);
+        if(solution) { showMessage(`存在解，最短路径长度 ${solution.length} 步`, 'trick', 4000); }
+        else { showMessage('确认无解，进入下一关', 'info', 1500); setTimeout(()=>loadLevel(currentLevel+1),1500); }
     } else {
-        const solution = bfsDualSolution(
-            {pos:c1.pos, quat:c1.quat}, 
-            {pos:c2.pos, quat:c2.quat}, 
-            c1.target, c2.target, globalBan
-        );
+        const solution = bfsDualSolution({pos:c1.pos, quat:c1.quat}, {pos:c2.pos, quat:c2.quat}, c1.target, c2.target, globalBan);
         if(devPanelOpen) {
-            if(solution && solution.length) {
-                showMessage(`正确方向：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
-            } else {
-                showMessage('无解', 'fail', 2000);
-            }
+            if(solution && solution.length) showMessage(`正确方向：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
+            else showMessage('无解', 'fail', 2000);
         } else {
-            if(solution && solution.length) {
-                showMessage(`建议下一步：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
-            } else {
-                showMessage('确认无解，进入下一关', 'info', 1500);
-                setTimeout(()=>loadLevel(currentLevel+1),1500);
-            }
+            if(solution && solution.length) showMessage(`建议下一步：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
+            else { showMessage('确认无解，进入下一关', 'info', 1500); setTimeout(()=>loadLevel(currentLevel+1),1500); }
         }
     }
 });
@@ -825,10 +981,13 @@ window.addEventListener('resize',()=>{camera.aspect=container.clientWidth/contai
 function animate(){requestAnimationFrame(animate); updateAnim(); renderer.render(scene,camera);}
 
 if(!loadProgress()){
+    GRID_SIZE = getRecommendedSize(1);
     buildGrid();
     updateCam();
     loadLevel(1);
     updateUI();
+} else {
+    prepareNextLevel(currentLevel + 1);
 }
 animate();
 </script>
