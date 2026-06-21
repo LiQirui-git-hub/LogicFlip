@@ -7,6 +7,8 @@ LogicFlip 是一款基于 Three.js 的 3D 翻转魔方逻辑挑战游戏。
 
 同时引入禁用格子、双方块协同模式等复杂机制。
 
+![游戏界面](https://liqirui-git-hub.github.io/LogicFlip/LogicFlip.png)
+
 ---
 有两个网站：
 
