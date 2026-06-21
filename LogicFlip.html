@@ -133,7 +133,7 @@ const FACE_NORMALS = [
 let gameMode = 'single';
 let currentLevel = 1, steps = 0;
 let isAnimating = false, isLevelComplete = false;
-let hintDisabled = false; // 提示永久禁用，不保存到本地
+let hintDisabled = false;
 
 let cubePos = {x:0,y:0}, targetPos = {x:1,y:1}, banSet = new Set();
 let startState = null, targetSteps = 0, targetType = 'shortest';
@@ -305,8 +305,10 @@ function findPaths(sx,sy,sq,ban,tx,ty){
 }
 
 function genSingle(level,size){
-    const total=size*size, banCount=Math.min(total-2,Math.floor((level-1)/2));
+    const total=size*size;
+    const banCount = Math.min(total-2, Math.floor((level-1) / 3)); // 每3关增加一个禁用格
     if(banCount>=total-1)return null;
+    const minSteps = level * 2 + 1; // 路径长度随关卡大幅增加
     const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
     for(let a=0;a<800;a++){
         const sh=[...all].sort(()=>Math.random()-0.5), ban=new Set();
@@ -319,7 +321,7 @@ function genSingle(level,size){
         const q=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[face],new THREE.Vector3(0,1,0)).normalize();
         const paths=findPaths(start.x,start.y,q,ban,target.x,target.y);
         if(!paths.size)continue; const lens=[...paths.keys()].sort((a,b)=>a-b);
-        if(lens[0]<level+1)continue;
+        if(lens[0] < minSteps)continue;
         let chosen,type;
         const forceKth = devForceKth;
         if(forceKth === true && lens.length > 1) {
@@ -372,9 +374,11 @@ function genDual(size){
 
 function loadLevel(level){
     if(level<=0)level=1;
+    // 动态双人概率：15% 起，每关增加5%，最高80%
+    const dualProbability = Math.min(0.8, 0.15 + level * 0.05);
     if(devForceDual === true) gameMode = 'dual';
     else if(devForceDual === false) gameMode = 'single';
-    else gameMode = Math.random() < 0.7 ? 'single' : 'dual';
+    else gameMode = Math.random() < dualProbability ? 'dual' : 'single';
 
     if(gameMode==='single'){
         const gen=genSingle(level,GRID_SIZE);
@@ -496,7 +500,6 @@ function updateUI(){
     document.getElementById('goal-dual').style.display=gameMode==='dual'?'flex':'none';
     const next=document.getElementById('next-btn');
     next.disabled=!isLevelComplete; next.style.opacity=isLevelComplete?'1':'0.4';
-    // 提示按钮和锁按钮状态
     const hintBtn = document.getElementById('unsolvable-btn');
     hintBtn.disabled = hintDisabled;
     const lockBtn = document.getElementById('hint-lock-btn');
@@ -548,7 +551,6 @@ function loadProgress(){
         currentLevel = data.currentLevel || 1;
         steps = data.steps || 0;
         isLevelComplete = data.isLevelComplete || false;
-        // 不再读取 hintDisabled
         devForceDual = data.devForceDual ?? null;
         devForceKth = data.devForceKth ?? null;
         devPanelOpen = data.devPanelOpen || false;
@@ -641,7 +643,6 @@ document.getElementById('dev-close').addEventListener('click', () => {
     saveProgress();
 });
 
-// 永久禁用提示按钮（不保存状态）
 document.getElementById('hint-lock-btn').addEventListener('click', () => {
     if (hintDisabled) return;
     hintDisabled = true;
