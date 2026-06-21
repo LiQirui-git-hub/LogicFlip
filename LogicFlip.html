@@ -169,7 +169,6 @@
         let nextLevelFor = null;
         let prepareTimer = null;
 
-        // 预计算的提示缓存：存储当前状态到目标的最优路径
         let hintCache = null;
 
         const loadingOverlay = document.getElementById('loading-overlay');
@@ -244,7 +243,6 @@
             return {x:nx,y:ny,quat:rot.clone().multiply(q).normalize()};
         }
 
-        // 异步 BFS 双人解 (保留用于关卡生成)
         async function bfsDualSolutionAsync(start1, start2, target1, target2, ban) {
             const stateKey = (p1,p2,q1,q2) => `${p1.x},${p1.y},${p2.x},${p2.y},${quatStr(q1)},${quatStr(q2)}`;
             const startKey = stateKey(start1.pos, start2.pos, start1.quat, start2.quat);
@@ -293,7 +291,6 @@
             return currentFace === face;
         }
 
-        // 异步单人 BFS (保留用于实时搜索)
         async function findSingleSolutionAsync(startX, startY, startQuat, ban, targetX, targetY, extraGoal) {
             const key = (x,y,q) => `${x},${y},${quatStr(q)}`;
             const startKey = key(startX, startY, startQuat);
@@ -405,7 +402,6 @@
                             chosen = lens[0]; type = 'shortest';
                         }
                     }
-                    // 重新找一条具体路径以便缓存
                     const solutionPath = await findSingleSolutionAsync(start.x, start.y, q, ban, target.x, target.y, extra);
                     return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type,extraGoal:extra, solutionPath: solutionPath || []};
                 } else {
@@ -470,7 +466,7 @@
             steps = 0;
             isLevelComplete = false;
             isAnimating = false;
-            hintCache = null; // 清除提示缓存
+            hintCache = null;
             if (currentMapData.type === 'single') {
                 const data = currentMapData;
                 banSet = new Set(data.banSet);
@@ -526,7 +522,6 @@
             startState = { x: cubePos.x, y: cubePos.y, quat: cubeGroup1.quaternion.clone() };
             saveMapSnapshot();
             
-            // 使用关卡生成时附带的最优路径初始化缓存
             if (gen.solutionPath && gen.solutionPath.length > 0) {
                 hintCache = {
                     pos: { x: gen.startX, y: gen.startY },
@@ -564,7 +559,6 @@
             extraGoal = null;
             saveMapSnapshot();
 
-            // 预缓存双人路径
             if (gen.solutionPath && gen.solutionPath.length > 0) {
                 hintCache = {
                     type: 'dual',
@@ -957,7 +951,6 @@
 
             try {
                 if(gameMode === 'single') {
-                    // 尝试从缓存获取下一步
                     if (hintCache && hintCache.pos && hintCache.path.length > 0 &&
                         hintCache.pos.x === cubePos.x && hintCache.pos.y === cubePos.y &&
                         quatStr(hintCache.quat) === quatStr(cubeGroup1.quaternion)) {
@@ -976,7 +969,6 @@
                         }
                     }
 
-                    // 缓存失效则实时搜索
                     showLoading();
                     const solution = await findSingleSolutionAsync(cubePos.x, cubePos.y, cubeGroup1.quaternion, banSet, targetPos.x, targetPos.y, extraGoal);
                     if(solution && solution.length > 0) {
@@ -999,7 +991,6 @@
                         setTimeout(() => loadLevel(currentLevel+1), 1500);
                     }
                 } else {
-                    // 双人模式缓存检查
                     if (hintCache && hintCache.type === 'dual' && hintCache.path.length > 0 &&
                         hintCache.c1pos.x === c1.pos.x && hintCache.c1pos.y === c1.pos.y &&
                         hintCache.c2pos.x === c2.pos.x && hintCache.c2pos.y === c2.pos.y &&
@@ -1047,9 +1038,26 @@
             if(raycaster.ray.intersectPlane(plane,pt)){
                 const gx=Math.floor(pt.x), gy=Math.floor(pt.z);
                 if(gx<0||gx>=GRID_SIZE||gy<0||gy>=GRID_SIZE)return;
-                const ref=gameMode==='single'?cubePos:c1.pos;
-                const dx=gx-ref.x, dy=gy-ref.y;
-                if(Math.abs(dx)+Math.abs(dy)===1) roll(dx,dy);
+                
+                if(gameMode==='single'){
+                    const ref=cubePos;
+                    const dx=gx-ref.x, dy=gy-ref.y;
+                    if(Math.abs(dx)+Math.abs(dy)===1) roll(dx,dy);
+                } else {
+                    // 双人模式：同时检查两个魔方的相邻格子
+                    let dx=0, dy=0;
+                    let adjacent = false;
+                    if(Math.abs(gx-c1.pos.x)+Math.abs(gy-c1.pos.y)===1){
+                        dx = gx-c1.pos.x;
+                        dy = gy-c1.pos.y;
+                        adjacent = true;
+                    } else if(Math.abs(gx-c2.pos.x)+Math.abs(gy-c2.pos.y)===1){
+                        dx = gx-c2.pos.x;
+                        dy = gy-c2.pos.y;
+                        adjacent = true;
+                    }
+                    if(adjacent) roll(dx,dy);
+                }
             }
         });
         document.addEventListener('keydown',e=>{
