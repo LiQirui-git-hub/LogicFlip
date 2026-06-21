@@ -71,6 +71,7 @@
             <span class="goal-indicator" id="goal-single">
                 <span class="dot red" id="goal-dot-red"></span>
                 <span class="dot green" id="goal-dot-green"></span>
+                <span id="extra-goal-dot" style="display:none;" class="dot green"></span>
             </span>
             <span class="goal-indicator" id="goal-dual" style="display:none;">
                 <span>魔方1</span><span class="dot red" id="d1-red"></span><span class="dot green" id="d1-green"></span>
@@ -78,7 +79,7 @@
             </span>
         </div>
         <div class="hud-right">
-            <button class="hud-btn" id="draft-btn">📝 草稿纸</button>
+            <button class="hud-btn" id="draft-btn">📝 演算</button>
             <button class="hud-btn" id="reset-btn">↺ 重置</button>
             <button class="hud-btn primary" id="next-btn">▶ 下一关</button>
             <button class="hud-btn info" id="unsolvable-btn">💡 提示</button>
@@ -91,7 +92,7 @@
     </div>
 </div>
 <div id="dev-panel">
-    <div class="dev-title">🔧 LogicFlip 开发者</div>
+    <div class="dev-title">🔧 开发者</div>
     <button id="dev-force-dual">强制双人</button>
     <button id="dev-force-kth">强制K短</button>
     <button id="dev-reset-force">恢复随机</button>
@@ -99,12 +100,12 @@
 </div>
 <div id="draft-modal">
     <div class="draft-panel">
-        <h3>📝 LogicFlip 草稿纸（单人专用）</h3>
+        <h3>📝 路径推演（单人模式）</h3>
         <div id="draft-grid" class="draft-grid"></div>
         <div class="draft-info">
-            <span>目标: <b id="draft-target-steps">-</b> 步</span>
-            <span>当前: <b id="draft-steps">0</b></span>
-            <span>状态: <b id="draft-status">⬜</b></span>
+            <span>目标步数 <b id="draft-target-steps">-</b></span>
+            <span>当前步数 <b id="draft-steps">0</b></span>
+            <span>状态 <b id="draft-status">⬜</b></span>
         </div>
         <div class="draft-buttons">
             <button id="draft-up">↑</button><button id="draft-down">↓</button>
@@ -137,6 +138,7 @@ let hintDisabled = false;
 
 let cubePos = {x:0,y:0}, targetPos = {x:1,y:1}, banSet = new Set();
 let startState = null, targetSteps = 0, targetType = 'shortest';
+let extraGoal = null;
 
 let globalBan = new Set();
 let c1 = {pos:{x:0,y:0}, quat:new THREE.Quaternion(), target:{x:1,y:1}};
@@ -204,6 +206,12 @@ function setTarget(group, x, y, color=0x22c55e){
 }
 function updateCam(){ const d=Math.max(GRID_SIZE*1.8,5); camera.position.set(d*0.9,d*0.7,d*1.1); camera.lookAt(GRID_SIZE/2,0,GRID_SIZE/2); }
 function topFace(q){ const up=new THREE.Vector3(0,1,0).applyQuaternion(q.clone().invert()); let i=2,m=-Infinity; FACE_NORMALS.forEach((n,j)=>{const d=n.dot(up);if(d>m){m=d;i=j;}}); return i; }
+function getFaceIndexForDir(q, worldDir) {
+    const localDir = worldDir.clone().applyQuaternion(q.clone().invert());
+    let idx = 0, max = -Infinity;
+    FACE_NORMALS.forEach((n,i)=>{ const d=n.dot(localDir); if(d>max){ max=d; idx=i; } });
+    return idx;
+}
 function quatStr(q){return `${q.x.toFixed(5)},${q.y.toFixed(5)},${q.z.toFixed(5)},${q.w.toFixed(5)}`;}
 function applyMove(x,y,q,dx,dy,ban){
     const nx=x+dx,ny=y+dy; if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE) return null;
@@ -258,7 +266,17 @@ function bfsDualSolution(start1, start2, target1, target2, ban) {
     return null;
 }
 
-function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY) {
+function checkExtraGoal(q, goal) {
+    if(!goal) return true;
+    const { face, dir } = goal;
+    let worldDir;
+    if(dir === 'right') worldDir = new THREE.Vector3(1,0,0);
+    else return true;
+    const currentFace = getFaceIndexForDir(q, worldDir);
+    return currentFace === face;
+}
+
+function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY, extraGoal) {
     const key = (x,y,q) => `${x},${y},${quatStr(q)}`;
     const startKey = key(startX, startY, startQuat);
     const queue = [{x:startX, y:startY, quat:startQuat.clone()}];
@@ -268,7 +286,7 @@ function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY) {
     while(queue.length) {
         const cur = queue.shift();
         const curKey = key(cur.x, cur.y, cur.quat);
-        if(cur.x === targetX && cur.y === targetY && topFace(cur.quat) === 2) {
+        if(cur.x === targetX && cur.y === targetY && topFace(cur.quat) === 2 && checkExtraGoal(cur.quat, extraGoal)) {
             const path = [];
             let k = curKey;
             while(visited.get(k)) {
@@ -290,10 +308,12 @@ function findSingleSolution(startX, startY, startQuat, ban, targetX, targetY) {
     return null;
 }
 
-function findPaths(sx,sy,sq,ban,tx,ty){
+function findPaths(sx,sy,sq,ban,tx,ty,extraGoal){
     const paths=new Map(); const vis=new Set(); const dirs=[{dx:-1,dy:0},{dx:1,dy:0},{dx:0,dy:-1},{dx:0,dy:1}];
     function dfs(x,y,q,len){
-        if(x===tx&&y===ty&&topFace(q)===2){ if(!paths.has(len))paths.set(len,0); paths.set(len,paths.get(len)+1); return; }
+        if(x===tx&&y===ty&&topFace(q)===2&&checkExtraGoal(q,extraGoal)){
+            if(!paths.has(len))paths.set(len,0); paths.set(len,paths.get(len)+1); return;
+        }
         for(const d of dirs){
             const nx=x+d.dx,ny=y+d.dy,nkey=`${nx},${ny}`;
             if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE||ban.has(nkey)||vis.has(nkey)) continue;
@@ -306,10 +326,11 @@ function findPaths(sx,sy,sq,ban,tx,ty){
 
 function genSingle(level,size){
     const total=size*size;
-    const banCount = Math.min(total-2, Math.floor((level-1) / 3)); // 每3关增加一个禁用格
+    const banCount = size<=3 ? Math.min(total-2, Math.floor((level-1)/3)) : Math.min(total-2, Math.floor((level-1)/1.5));
     if(banCount>=total-1)return null;
-    const minSteps = level * 2 + 1; // 路径长度随关卡大幅增加
+    const minSteps = size<=3 ? (level*2+1) : (level*3+2);
     const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
+    const extra = size>=4 ? { face: 1, dir: 'right' } : null;
     for(let a=0;a<800;a++){
         const sh=[...all].sort(()=>Math.random()-0.5), ban=new Set();
         for(let i=0;i<banCount;i++)ban.add(`${sh[i].x},${sh[i].y}`);
@@ -319,7 +340,7 @@ function genSingle(level,size){
         const target=tars[Math.floor(Math.random()*tars.length)];
         const face=Math.floor(Math.random()*6);
         const q=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[face],new THREE.Vector3(0,1,0)).normalize();
-        const paths=findPaths(start.x,start.y,q,ban,target.x,target.y);
+        const paths=findPaths(start.x,start.y,q,ban,target.x,target.y,extra);
         if(!paths.size)continue; const lens=[...paths.keys()].sort((a,b)=>a-b);
         if(lens[0] < minSteps)continue;
         let chosen,type;
@@ -341,7 +362,7 @@ function genSingle(level,size){
                 type = 'shortest';
             }
         }
-        return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type};
+        return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type,extraGoal:extra};
     }
     return null;
 }
@@ -374,7 +395,6 @@ function genDual(size){
 
 function loadLevel(level){
     if(level<=0)level=1;
-    // 动态双人概率：15% 起，每关增加5%，最高80%
     const dualProbability = Math.min(0.8, 0.15 + level * 0.05);
     if(devForceDual === true) gameMode = 'dual';
     else if(devForceDual === false) gameMode = 'single';
@@ -382,10 +402,16 @@ function loadLevel(level){
 
     if(gameMode==='single'){
         const gen=genSingle(level,GRID_SIZE);
-        if(!gen){ GRID_SIZE++; buildGrid(); updateCam(); setTimeout(()=>loadLevel(1),2500); return; }
+        if(!gen){
+            GRID_SIZE++; buildGrid(); updateCam();
+            showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}，保持当前关卡`, 'info', 2500);
+            setTimeout(()=>loadLevel(level), 2500);
+            return;
+        }
         currentLevel=level; steps=0; isLevelComplete=false; isAnimating=false;
         banSet=gen.ban; targetSteps=gen.targetSteps; targetType=gen.targetType;
         targetPos={x:gen.targetX,y:gen.targetY}; cubePos={x:gen.startX,y:gen.startY};
+        extraGoal = gen.extraGoal || null;
         cubeGroup1.quaternion.identity().normalize();
         if(gen.startFace!==2) cubeGroup1.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[gen.startFace],new THREE.Vector3(0,1,0)));
         cubeGroup1.position.set(cubePos.x+0.5,CUBE_SIZE/2,cubePos.y+0.5);
@@ -396,7 +422,12 @@ function loadLevel(level){
         startState={x:cubePos.x,y:cubePos.y,quat:cubeGroup1.quaternion.clone()};
     } else {
         const gen=genDual(GRID_SIZE);
-        if(!gen){ GRID_SIZE++; buildGrid(); updateCam(); setTimeout(()=>loadLevel(1),2500); return; }
+        if(!gen){
+            GRID_SIZE++; buildGrid(); updateCam();
+            showMessage(`棋盘扩展至 ${GRID_SIZE}×${GRID_SIZE}，保持当前关卡`, 'info', 2500);
+            setTimeout(()=>loadLevel(level), 2500);
+            return;
+        }
         currentLevel=level; steps=0; isLevelComplete=false; isAnimating=false;
         globalBan = gen.ban;
         c1.pos=gen.c1.pos; c1.target=gen.c1.target; c1.quat.copy(gen.c1.quat);
@@ -407,12 +438,20 @@ function loadLevel(level){
         addBan(banGroup1, globalBan);
         setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
         setTarget(targetGroup2, c2.target.x, c2.target.y, 0x84cc16);
+        extraGoal = null;
     }
     buildGrid(); updateUI(); hideMessage(); updateGoalIndicator();
     document.getElementById('mode-display').textContent = gameMode==='single'?'单人':'双人';
+    const extraDot = document.getElementById('extra-goal-dot');
+    if(gameMode==='single' && extraGoal) {
+        extraDot.style.display = 'inline-block';
+        extraDot.style.borderColor = '#22c55e';
+    } else {
+        extraDot.style.display = 'none';
+    }
     if(gameMode==='single'){
-        const typeText = targetType==='shortest'?'最短':'k短';
-        document.getElementById('target-display').textContent = `${targetSteps}步(${typeText}) 终点(${targetPos.x},${targetPos.y})`;
+        const typeText = targetType==='shortest'?'最短路径':'K短路径';
+        document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
     }
     saveProgress();
 }
@@ -472,18 +511,21 @@ function updateAnim(){
 function checkWin(){
     if(gameMode==='single'){
         const at=cubePos.x===targetPos.x&&cubePos.y===targetPos.y, red=topFace(cubeGroup1.quaternion)===2;
-        if(at&&red&&steps===targetSteps){
+        const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
+        if(at&&red&&extraOk&&steps===targetSteps){
             isLevelComplete=true; flash(mesh1);
-            showMessage(`✨ ${targetType==='shortest'?'最优解':'k短路径'}！${steps}步`,'success',2000);
+            const desc = targetType==='shortest'?'最短路径':'K短路径';
+            showMessage(`完成！${desc}（${steps}步）`, 'success', 2000);
             updateUI(); saveProgress();
             setTimeout(()=>loadLevel(currentLevel+1),2000);
-        }else if(at&&red){ showMessage(`步数不符（需${targetSteps}步），重置`,'fail',1800); setTimeout(resetLevel,1800); }
+        }else if(at&&red&&!extraOk){ showMessage('额外朝向不符合要求', 'fail', 1500); setTimeout(resetLevel,1500); }
+        else if(at&&red){ showMessage(`步数不符（目标${targetSteps}步，当前${steps}步）`, 'fail', 1800); setTimeout(resetLevel,1800); }
     }else{
         const ok1=c1.pos.x===c1.target.x&&c1.pos.y===c1.target.y&&topFace(c1.quat)===2;
         const ok2=c2.pos.x===c2.target.x&&c2.pos.y===c2.target.y&&topFace(c2.quat)===2;
         if(ok1&&ok2){
             isLevelComplete=true; flash(mesh1); flash(mesh2);
-            showMessage(`🎉 双人挑战成功！${steps}步`,'success',2500);
+            showMessage(`双人模式完成！${steps}步`, 'success', 2500);
             updateUI(); saveProgress();
             setTimeout(()=>loadLevel(currentLevel+1),2500);
         }
@@ -492,7 +534,7 @@ function checkWin(){
 function flash(m){const red=new THREE.MeshStandardMaterial({color:0xef4444,roughness:0.3}); const orig=m.material; m.material=Array(6).fill(red); setTimeout(()=>{m.material=orig;},800);}
 
 function updateUI(){
-    document.getElementById('grid-size-display').textContent=`${GRID_SIZE}x${GRID_SIZE}`;
+    document.getElementById('grid-size-display').textContent=`${GRID_SIZE}×${GRID_SIZE}`;
     document.getElementById('level-display').textContent=currentLevel;
     document.getElementById('steps-display').textContent=steps;
     document.getElementById('single-info').style.display=gameMode==='single'?'inline':'none';
@@ -509,8 +551,16 @@ function updateUI(){
 function updateGoalIndicator(){
     if(gameMode==='single'){
         const at=cubePos.x===targetPos.x&&cubePos.y===targetPos.y, red=topFace(cubeGroup1.quaternion)===2;
+        const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
         document.getElementById('goal-dot-red').style.borderColor=red?'#4ade80':'rgba(255,255,255,0.2)';
         document.getElementById('goal-dot-green').style.borderColor=at?'#4ade80':'rgba(255,255,255,0.2)';
+        const extraDot = document.getElementById('extra-goal-dot');
+        if(extraGoal) {
+            extraDot.style.borderColor = extraOk ? '#4ade80' : 'rgba(255,255,255,0.2)';
+            extraDot.style.display = 'inline-block';
+        } else {
+            extraDot.style.display = 'none';
+        }
     }else{
         const r1=topFace(c1.quat)===2, g1=c1.pos.x===c1.target.x&&c1.pos.y===c1.target.y;
         const r2=topFace(c2.quat)===2, g2=c2.pos.x===c2.target.x&&c2.pos.y===c2.target.y;
@@ -531,6 +581,7 @@ function saveProgress(){
     const saveData = {
         GRID_SIZE, gameMode, currentLevel, steps, isLevelComplete,
         cubePos, targetPos, banSet: [...banSet], targetSteps, targetType,
+        extraGoal,
         startStateQuat: startState ? [startState.quat.x, startState.quat.y, startState.quat.z, startState.quat.w] : null,
         cubeGroup1Quat: [cubeGroup1.quaternion.x, cubeGroup1.quaternion.y, cubeGroup1.quaternion.z, cubeGroup1.quaternion.w],
         globalBan: [...globalBan],
@@ -554,6 +605,7 @@ function loadProgress(){
         devForceDual = data.devForceDual ?? null;
         devForceKth = data.devForceKth ?? null;
         devPanelOpen = data.devPanelOpen || false;
+        extraGoal = data.extraGoal || null;
         if(devPanelOpen) document.getElementById('dev-panel').classList.add('show');
         if(gameMode === 'single'){
             cubePos = data.cubePos || {x:0,y:0};
@@ -586,12 +638,13 @@ function loadProgress(){
             addBan(banGroup1, globalBan);
             setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
             setTarget(targetGroup2, c2.target.x, c2.target.y, 0x84cc16);
+            extraGoal = null;
         }
         buildGrid(); updateCam(); updateUI(); updateGoalIndicator();
         document.getElementById('mode-display').textContent = gameMode==='single'?'单人':'双人';
         if(gameMode==='single'){
-            const typeText = targetType==='shortest'?'最短':'k短';
-            document.getElementById('target-display').textContent = `${targetSteps}步(${typeText}) 终点(${targetPos.x},${targetPos.y})`;
+            const typeText = targetType==='shortest'?'最短路径':'K短路径';
+            document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
         }
         updateDevPanelButtons();
         return true;
@@ -622,19 +675,19 @@ function updateDevPanelButtons() {
 document.getElementById('dev-force-dual').addEventListener('click', () => {
     devForceDual = devForceDual === true ? null : true;
     updateDevPanelButtons(); saveProgress();
-    showMessage(devForceDual ? '已强制双人' : '已恢复随机', 'info', 1500);
+    showMessage(devForceDual ? '已强制双人模式' : '已恢复随机', 'info', 1500);
     loadLevel(currentLevel);
 });
 document.getElementById('dev-force-kth').addEventListener('click', () => {
     devForceKth = devForceKth === true ? null : true;
     updateDevPanelButtons(); saveProgress();
-    showMessage(devForceKth ? '已强制K短' : '已恢复随机', 'info', 1500);
+    showMessage(devForceKth ? '已强制K短路径' : '已恢复随机', 'info', 1500);
     loadLevel(currentLevel);
 });
 document.getElementById('dev-reset-force').addEventListener('click', () => {
     devForceDual = null; devForceKth = null;
     updateDevPanelButtons(); saveProgress();
-    showMessage('已恢复随机', 'info', 1500);
+    showMessage('已恢复随机模式', 'info', 1500);
     loadLevel(currentLevel);
 });
 document.getElementById('dev-close').addEventListener('click', () => {
@@ -647,40 +700,40 @@ document.getElementById('hint-lock-btn').addEventListener('click', () => {
     if (hintDisabled) return;
     hintDisabled = true;
     updateUI();
-    showMessage('提示已永久禁用（刷新后恢复）', 'info', 1500);
+    showMessage('提示功能已禁用（刷新后恢复）', 'info', 1500);
 });
 
 document.getElementById('unsolvable-btn').addEventListener('click', () => {
     if(isAnimating||isLevelComplete) return;
     if(hintDisabled && !devPanelOpen) {
-        showMessage('提示已禁用', 'fail', 1000);
+        showMessage('提示功能已禁用', 'fail', 1000);
         return;
     }
 
     if(gameMode === 'single') {
         const atTarget = cubePos.x === targetPos.x && cubePos.y === targetPos.y;
         const redUp = topFace(cubeGroup1.quaternion) === 2;
+        const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
 
-        if(atTarget && redUp && steps !== targetSteps) {
-            const solution = findSingleSolution(startState.x, startState.y, startState.quat, banSet, targetPos.x, targetPos.y);
+        if(atTarget && redUp && extraOk && steps !== targetSteps) {
+            const solution = findSingleSolution(startState.x, startState.y, startState.quat, banSet, targetPos.x, targetPos.y, extraGoal);
             if(solution && solution.length) {
-                showMessage(`💡 最优解第一步：${solution[0]}（共${solution.length}步），重置后试试`, 'trick', 3000);
+                showMessage(`提示：最优路径第一步为 ${solution[0]}（共${solution.length}步）`, 'trick', 3000);
             } else {
-                showMessage('❓ 无法找到最优路径', 'fail', 2000);
+                showMessage('未能找到最优路径', 'fail', 2000);
             }
             return;
         }
 
-        const paths = findPaths(startState.x,startState.y,startState.quat,banSet,targetPos.x,targetPos.y);
+        const paths = findPaths(startState.x,startState.y,startState.quat,banSet,targetPos.x,targetPos.y,extraGoal);
         const lens = [...paths.keys()].sort((a,b)=>a-b);
         if(devPanelOpen) {
-            showMessage(lens.length ? `💡 可达长度：${lens.join(', ')}` : '❓ 无解', 'trick', 3000);
+            showMessage(lens.length ? `可达路径长度：${lens.join(', ')}` : '此关卡无解', 'trick', 3000);
         } else {
             if(lens.length){
-                showMessage(`💡 有解！可达长度：${lens.join(', ')}`,'trick',4000);
-                setTimeout(()=>loadLevel(1),4000);
+                showMessage(`存在解，可达路径长度：${lens.join(', ')}`, 'trick', 4000);
             } else {
-                showMessage('✅ 确认无解，进入下一关','info',1500);
+                showMessage('确认无解，进入下一关', 'info', 1500);
                 setTimeout(()=>loadLevel(currentLevel+1),1500);
             }
         }
@@ -692,15 +745,15 @@ document.getElementById('unsolvable-btn').addEventListener('click', () => {
         );
         if(devPanelOpen) {
             if(solution && solution.length) {
-                showMessage(`💡 正确方向：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
+                showMessage(`正确方向：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
             } else {
-                showMessage('🚫 无解', 'fail', 2000);
+                showMessage('无解', 'fail', 2000);
             }
         } else {
             if(solution && solution.length) {
-                showMessage(`💡 下一步：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
+                showMessage(`建议下一步：${solution[0]}（总${solution.length}步）`, 'trick', 3000);
             } else {
-                showMessage('✅ 确认无解，进入下一关','info',1500);
+                showMessage('确认无解，进入下一关', 'info', 1500);
                 setTimeout(()=>loadLevel(currentLevel+1),1500);
             }
         }
@@ -732,7 +785,7 @@ document.addEventListener('keydown',e=>{
     if(e.key==='r'||e.key==='R'){e.preventDefault(); resetLevel();}
 });
 document.getElementById('reset-btn').addEventListener('click',resetLevel);
-document.getElementById('next-btn').addEventListener('click',()=>{if(isLevelComplete)loadLevel(currentLevel+1); else showMessage('⚠️ 先完成关卡','fail',1000);});
+document.getElementById('next-btn').addEventListener('click',()=>{if(isLevelComplete)loadLevel(currentLevel+1); else showMessage('请先完成当前关卡','fail',1000);});
 
 function resetLevel(){if(isAnimating)return; loadLevel(currentLevel); updateUI(); hideMessage();}
 
@@ -751,14 +804,15 @@ function renderDraft(){
     document.getElementById('draft-target-steps').textContent=targetSteps||'-';
     document.getElementById('draft-steps').textContent=draftSteps;
     const at=draftPos.x===targetPos.x&&draftPos.y===targetPos.y, red=topFace(draftQuat)===2;
-    document.getElementById('draft-status').textContent=at&&red&&draftSteps===targetSteps?'✅':at&&red?'🎯':at?'📍':red?'🔴':'⬜';
+    const extraOk = checkExtraGoal(draftQuat, extraGoal);
+    document.getElementById('draft-status').textContent=at&&red&&extraOk&&draftSteps===targetSteps?'✅':at&&red&&extraOk?'🎯':at?'📍':red?'🔴':'⬜';
 }
 function draftRoll(dx,dy){
     const next=applyMove(draftPos.x,draftPos.y,draftQuat,dx,dy,banSet); if(!next)return;
     draftPos.x=next.x; draftPos.y=next.y; draftQuat.copy(next.quat); draftSteps++; renderDraft();
 }
 document.getElementById('draft-btn').addEventListener('click',()=>{
-    if(gameMode!=='single'){showMessage('草稿纸仅限单人模式','info',1000);return;}
+    if(gameMode!=='single'){showMessage('推演仅限单人模式','info',1000);return;}
     draftOpen=true; document.getElementById('draft-modal').classList.add('show'); initDraft();
 });
 document.getElementById('draft-close').addEventListener('click',()=>{draftOpen=false;document.getElementById('draft-modal').classList.remove('show');});
@@ -777,7 +831,6 @@ if(!loadProgress()){
     updateUI();
 }
 animate();
-console.log('%c🧊 LogicFlip · 翻转逻辑挑战', 'font-size:20px; font-weight:bold; color:#facc15;');
 </script>
 </body>
 </html>
