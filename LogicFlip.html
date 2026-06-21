@@ -58,6 +58,12 @@
         .loading-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; pointer-events:none; }
         .loading-overlay .spinner { border:3px solid rgba(255,255,255,0.2); border-top:3px solid #facc15; border-radius:50%; width:36px; height:36px; animation:spin 1s linear infinite; }
         @keyframes spin { to { transform:rotate(360deg); } }
+        #direction-picker { display:none; position:fixed; z-index:400; background:rgba(20,25,40,0.95); backdrop-filter:blur(12px); border:1px solid #facc15; border-radius:12px; padding:16px; flex-direction:column; gap:10px; box-shadow:0 10px 30px rgba(0,0,0,0.7); }
+        #direction-picker.show { display:flex; }
+        #direction-picker .pick-btn { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 16px; color:#fff; cursor:pointer; font-size:14px; transition:0.2s; }
+        #direction-picker .pick-btn:hover { background:rgba(255,255,255,0.2); }
+        .picker-backdrop { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:399; }
+        .picker-backdrop.show { display:block; }
     </style>
 </head>
 <body>
@@ -95,6 +101,12 @@
         </div>
         <div id="loading-overlay" class="loading-overlay" style="display:none;">
             <div class="spinner"></div>
+        </div>
+        <div class="picker-backdrop" id="picker-backdrop"></div>
+        <div id="direction-picker">
+            <div style="color:#fff; text-align:center; margin-bottom:4px;">请选择基准方块</div>
+            <button class="pick-btn" id="pick-c1">方块1</button>
+            <button class="pick-btn" id="pick-c2">方块2</button>
         </div>
     </div>
     <div id="dev-panel">
@@ -174,6 +186,51 @@
         const loadingOverlay = document.getElementById('loading-overlay');
         function showLoading() { loadingOverlay.style.display = 'flex'; }
         function hideLoading() { loadingOverlay.style.display = 'none'; }
+
+        const directionPicker = document.getElementById('direction-picker');
+        const pickerBackdrop = document.getElementById('picker-backdrop');
+        const pickC1Btn = document.getElementById('pick-c1');
+        const pickC2Btn = document.getElementById('pick-c2');
+
+        let isPickingDirection = false;
+        let pendingRoll = null; // { dx, dy }
+
+        function showDirectionPicker(c1Dir, c2Dir, onSelect) {
+            isPickingDirection = true;
+            const dirChars = { '0,1': '↓', '0,-1': '↑', '1,0': '→', '-1,0': '←' };
+            const c1Key = `${c1Dir.dx},${c1Dir.dy}`;
+            const c2Key = `${c2Dir.dx},${c2Dir.dy}`;
+            pickC1Btn.textContent = `🔴 方块1 ${dirChars[c1Key] || ''}`;
+            pickC2Btn.textContent = `🔵 方块2 ${dirChars[c2Key] || ''}`;
+            
+            const rect = container.getBoundingClientRect();
+            const centerX = rect.left + rect.width/2;
+            const centerY = rect.top + rect.height/2;
+            directionPicker.style.left = `${centerX}px`;
+            directionPicker.style.top = `${centerY}px`;
+            directionPicker.style.transform = 'translate(-50%, -50%)';
+            
+            directionPicker.classList.add('show');
+            pickerBackdrop.classList.add('show');
+
+            const cleanup = () => {
+                directionPicker.classList.remove('show');
+                pickerBackdrop.classList.remove('show');
+                isPickingDirection = false;
+            };
+
+            pickC1Btn.onclick = () => {
+                cleanup();
+                onSelect(c1Dir.dx, c1Dir.dy);
+            };
+            pickC2Btn.onclick = () => {
+                cleanup();
+                onSelect(c2Dir.dx, c2Dir.dy);
+            };
+            pickerBackdrop.onclick = () => {
+                cleanup();
+            };
+        }
 
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
@@ -692,7 +749,7 @@
         }
 
         function roll(dx,dy){
-            if(isAnimating||isLevelComplete||isGenerating||isSearching)return;
+            if(isAnimating||isLevelComplete||isGenerating||isSearching||isPickingDirection)return;
             if(gameMode==='single'){
                 const nx=cubePos.x+dx, ny=cubePos.y+dy;
                 if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE)return;
@@ -941,7 +998,7 @@
         });
 
         document.getElementById('unsolvable-btn').addEventListener('click', async () => {
-            if(isAnimating||isLevelComplete||isGenerating||isSearching) return;
+            if(isAnimating||isLevelComplete||isGenerating||isSearching||isPickingDirection) return;
             if(hintDisabled && !devPanelOpen) { showMessage('提示功能已禁用', 'fail', 1000); return; }
 
             isSearching = true;
@@ -1031,7 +1088,7 @@
 
         const raycaster=new THREE.Raycaster(), mouse=new THREE.Vector2(), plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
         container.addEventListener('click',e=>{
-            if(isAnimating||isLevelComplete||draftOpen||isGenerating||isSearching)return;
+            if(isAnimating||isLevelComplete||draftOpen||isGenerating||isSearching||isPickingDirection)return;
             const rect=container.getBoundingClientRect();
             mouse.x=((e.clientX-rect.left)/rect.width)*2-1; mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
             raycaster.setFromCamera(mouse,camera); const pt=new THREE.Vector3();
@@ -1044,24 +1101,32 @@
                     const dx=gx-ref.x, dy=gy-ref.y;
                     if(Math.abs(dx)+Math.abs(dy)===1) roll(dx,dy);
                 } else {
-                    // 双人模式：同时检查两个魔方的相邻格子
-                    let dx=0, dy=0;
-                    let adjacent = false;
-                    if(Math.abs(gx-c1.pos.x)+Math.abs(gy-c1.pos.y)===1){
-                        dx = gx-c1.pos.x;
-                        dy = gy-c1.pos.y;
-                        adjacent = true;
-                    } else if(Math.abs(gx-c2.pos.x)+Math.abs(gy-c2.pos.y)===1){
-                        dx = gx-c2.pos.x;
-                        dy = gy-c2.pos.y;
-                        adjacent = true;
+                    const c1dx = gx - c1.pos.x, c1dy = gy - c1.pos.y;
+                    const c2dx = gx - c2.pos.x, c2dy = gy - c2.pos.y;
+                    const c1Adj = Math.abs(c1dx) + Math.abs(c1dy) === 1;
+                    const c2Adj = Math.abs(c2dx) + Math.abs(c2dy) === 1;
+                    
+                    if (c1Adj && c2Adj) {
+                        const dirSame = (c1dx === c2dx && c1dy === c2dy);
+                        if (dirSame) {
+                            roll(c1dx, c1dy);
+                        } else {
+                            showDirectionPicker(
+                                { dx: c1dx, dy: c1dy },
+                                { dx: c2dx, dy: c2dy },
+                                (dx, dy) => roll(dx, dy)
+                            );
+                        }
+                    } else if (c1Adj) {
+                        roll(c1dx, c1dy);
+                    } else if (c2Adj) {
+                        roll(c2dx, c2dy);
                     }
-                    if(adjacent) roll(dx,dy);
                 }
             }
         });
         document.addEventListener('keydown',e=>{
-            if(draftOpen||isGenerating||isSearching)return;
+            if(draftOpen||isGenerating||isSearching||isPickingDirection)return;
             if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
                 e.preventDefault(); let dx=0,dy=0;
                 if(e.key==='ArrowUp')dy=-1; else if(e.key==='ArrowDown')dy=1;
@@ -1073,7 +1138,7 @@
         document.getElementById('reset-btn').addEventListener('click',resetLevel);
         document.getElementById('next-btn').addEventListener('click',()=>{if(isLevelComplete&&!isGenerating)loadLevel(currentLevel+1); else if(isGenerating) showMessage('关卡生成中，请稍后','info',1000); else showMessage('请先完成当前关卡','fail',1000);});
 
-        function resetLevel(){if(isAnimating||isGenerating||isSearching)return; resetCurrentMap(); updateUI(); hideMessage();}
+        function resetLevel(){if(isAnimating||isGenerating||isSearching||isPickingDirection)return; resetCurrentMap(); updateUI(); hideMessage();}
 
         let draftOpen=false, draftPos={x:0,y:0}, draftQuat=new THREE.Quaternion(), draftSteps=0;
         function initDraft(){ draftPos={...cubePos}; draftQuat.copy(startState?.quat||new THREE.Quaternion()); draftSteps=0; renderDraft(); }
