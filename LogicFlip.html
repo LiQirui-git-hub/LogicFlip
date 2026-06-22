@@ -5,65 +5,414 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
     <title>LogicFlip · 3D 翻转魔方</title>
     <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family:'Segoe UI',system-ui,sans-serif; background:#0b0e17; overflow:hidden; height:100vh; color:#fff; user-select:none; -webkit-tap-highlight-color:transparent; }
-        #game-container { position:relative; width:100vw; height:100vh; }
-        #canvas-container { width:100%; height:100%; display:block; cursor:pointer; }
-        #hud { position:absolute; top:20px; left:0; width:100%; pointer-events:none; padding:0 24px; display:flex; justify-content:space-between; align-items:flex-start; flex-wrap:wrap; gap:12px; }
-        .hud-left,.hud-right { pointer-events:auto; background:rgba(11,14,23,0.75); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:14px 22px; box-shadow:0 8px 32px rgba(0,0,0,0.5); display:flex; align-items:center; gap:18px; flex-wrap:wrap; }
-        .hud-left { font-size:14px; letter-spacing:0.3px; }
-        .hud-left .label { opacity:0.5; font-weight:400; margin-right:2px; }
-        .hud-left .value { font-weight:600; color:#fff; }
-        .hud-left .highlight { color:#facc15; }
-        .hud-right { gap:10px; }
-        .hud-btn { pointer-events:auto; background:rgba(255,255,255,0.06); border:1px solid rgba(255,255,255,0.12); border-radius:10px; padding:8px 14px; color:#fff; font-size:13px; font-weight:500; cursor:pointer; transition:all 0.2s; letter-spacing:0.3px; background:rgba(255,255,255,0.04); white-space:nowrap; }
-        .hud-btn:hover { background:rgba(255,255,255,0.12); border-color:rgba(255,255,255,0.25); transform:scale(1.02); }
-        .hud-btn:active { transform:scale(0.96); }
-        .hud-btn.primary { background:#facc15; color:#0b0e17; border-color:#facc15; font-weight:600; }
-        .hud-btn.primary:hover { background:#fde047; border-color:#fde047; }
-        .hud-btn.info { background:rgba(59,130,246,0.15); border-color:rgba(59,130,246,0.5); color:#60a5fa; }
-        .hud-btn.info:hover { background:rgba(59,130,246,0.25); border-color:#60a5fa; }
-        .hud-btn:disabled { opacity:0.4; cursor:not-allowed; }
-        .hud-btn.lock-btn { padding:8px 10px; min-width:40px; display:flex; align-items:center; justify-content:center; }
-        .goal-indicator { display:flex; align-items:center; gap:12px; font-size:13px; }
-        .goal-indicator .dot { width:16px; height:16px; border-radius:50%; display:inline-block; border:2px solid rgba(255,255,255,0.2); flex-shrink:0; transition:all 0.3s; }
-        .dot.red { background:#ef4444; }
-        .dot.green { background:#22c55e; border-color:#22c55e; }
-        #message { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); pointer-events:none; background:rgba(11,14,23,0.85); backdrop-filter:blur(12px); -webkit-backdrop-filter:blur(12px); border:1px solid rgba(255,255,255,0.08); border-radius:16px; padding:16px 32px; font-size:18px; font-weight:500; letter-spacing:0.5px; text-align:center; transition:all 0.4s cubic-bezier(0.34,1.56,0.64,1); opacity:0; transform:translateX(-50%) translateY(20px); box-shadow:0 12px 48px rgba(0,0,0,0.6); max-width:90%; }
-        #message.show { opacity:1; transform:translateX(-50%) translateY(0); }
-        #message.success { border-color:#4ade80; color:#4ade80; }
-        #message.fail { border-color:#f87171; color:#f87171; }
-        #message.info { border-color:#60a5fa; color:#60a5fa; }
-        #message.trick { border-color:#facc15; color:#facc15; }
-        #controls-hint { position:absolute; bottom:24px; left:50%; transform:translateX(-50%); pointer-events:none; background:rgba(11,14,23,0.6); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); border:1px solid rgba(255,255,255,0.06); border-radius:12px; padding:10px 20px; font-size:13px; color:rgba(255,255,255,0.4); letter-spacing:0.5px; display:flex; align-items:center; gap:16px; }
-        #controls-hint kbd { background:rgba(255,255,255,0.08); padding:2px 10px; border-radius:6px; font-family:inherit; color:rgba(255,255,255,0.6); font-size:13px; border:1px solid rgba(255,255,255,0.06); }
-        #draft-modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:100; justify-content:center; align-items:center; }
-        #draft-modal.show { display:flex; }
-        .draft-panel { background:rgba(20,25,40,0.95); backdrop-filter:blur(16px); border:1px solid rgba(255,255,255,0.1); border-radius:20px; padding:24px; width:90%; max-width:500px; display:flex; flex-direction:column; gap:20px; box-shadow:0 20px 60px rgba(0,0,0,0.8); }
-        .draft-panel h3 { text-align:center; color:#facc15; }
-        .draft-grid { display:grid; gap:4px; justify-content:center; }
-        .draft-cell { width:48px; height:48px; background:rgba(255,255,255,0.05); border:1px solid rgba(255,255,255,0.15); border-radius:6px; display:flex; align-items:center; justify-content:center; font-size:18px; cursor:pointer; }
-        .draft-cell.ban { background:rgba(239,68,68,0.3); border-color:#ef4444; }
-        .draft-cell.target { background:rgba(34,197,94,0.3); border-color:#22c55e; }
-        .draft-cell.current { box-shadow:0 0 12px #facc15; border-color:#facc15; }
-        .draft-info { display:flex; justify-content:space-between; color:rgba(255,255,255,0.7); }
-        .draft-buttons { display:flex; gap:10px; justify-content:center; flex-wrap:wrap; }
-        .draft-buttons button { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.15); border-radius:8px; padding:8px 16px; color:#fff; cursor:pointer; }
-        .draft-buttons button.primary { background:#facc15; color:#0b0e17; border-color:#facc15; font-weight:600; }
-        #dev-panel { display:none; position:fixed; top:80px; right:30px; background:rgba(20,25,40,0.95); backdrop-filter:blur(12px); border:1px solid #facc15; border-radius:12px; padding:16px; z-index:200; flex-direction:column; gap:10px; box-shadow:0 10px 30px rgba(0,0,0,0.7); }
-        #dev-panel.show { display:flex; }
-        #dev-panel button { background:rgba(255,255,255,0.08); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:6px 12px; color:#fff; cursor:pointer; font-size:12px; }
-        #dev-panel button.active { background:#facc15; color:#000; border-color:#facc15; }
-        #dev-panel .dev-title { color:#facc15; font-weight:bold; text-align:center; }
-        .loading-overlay { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.5); z-index:300; display:flex; align-items:center; justify-content:center; pointer-events:none; }
-        .loading-overlay .spinner { border:3px solid rgba(255,255,255,0.2); border-top:3px solid #facc15; border-radius:50%; width:36px; height:36px; animation:spin 1s linear infinite; }
-        @keyframes spin { to { transform:rotate(360deg); } }
-        #direction-picker { display:none; position:fixed; z-index:400; background:rgba(20,25,40,0.95); backdrop-filter:blur(12px); border:1px solid #facc15; border-radius:12px; padding:16px; flex-direction:column; gap:10px; box-shadow:0 10px 30px rgba(0,0,0,0.7); }
-        #direction-picker.show { display:flex; }
-        #direction-picker .pick-btn { background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.2); border-radius:8px; padding:10px 16px; color:#fff; cursor:pointer; font-size:14px; transition:0.2s; }
-        #direction-picker .pick-btn:hover { background:rgba(255,255,255,0.2); }
-        .picker-backdrop { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.3); z-index:399; }
-        .picker-backdrop.show { display:block; }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0b0e17;
+            overflow: hidden;
+            height: 100vh;
+            color: #fff;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            display: block;
+            cursor: pointer;
+        }
+        #hud {
+            position: absolute;
+            top: 20px;
+            left: 0;
+            width: 100%;
+            pointer-events: none;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .hud-left,
+        .hud-right {
+            pointer-events: auto;
+            background: rgba(11, 14, 23, 0.75);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 14px 22px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            flex-wrap: wrap;
+        }
+        .hud-left {
+            font-size: 14px;
+            letter-spacing: 0.3px;
+        }
+        .hud-left .label {
+            opacity: 0.5;
+            font-weight: 400;
+            margin-right: 2px;
+        }
+        .hud-left .value {
+            font-weight: 600;
+            color: #fff;
+        }
+        .hud-left .highlight {
+            color: #facc15;
+        }
+        .hud-right {
+            gap: 10px;
+        }
+        .hud-btn {
+            pointer-events: auto;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            padding: 8px 14px;
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            letter-spacing: 0.3px;
+            background: rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+        .hud-btn:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: scale(1.02);
+        }
+        .hud-btn:active {
+            transform: scale(0.96);
+        }
+        .hud-btn.primary {
+            background: #facc15;
+            color: #0b0e17;
+            border-color: #facc15;
+            font-weight: 600;
+        }
+        .hud-btn.primary:hover {
+            background: #fde047;
+            border-color: #fde047;
+        }
+        .hud-btn.info {
+            background: rgba(59, 130, 246, 0.15);
+            border-color: rgba(59, 130, 246, 0.5);
+            color: #60a5fa;
+        }
+        .hud-btn.info:hover {
+            background: rgba(59, 130, 246, 0.25);
+            border-color: #60a5fa;
+        }
+        .hud-btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        .hud-btn.lock-btn {
+            padding: 8px 10px;
+            min-width: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .goal-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+        .goal-indicator .dot {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: inline-block;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            flex-shrink: 0;
+            transition: all 0.3s;
+        }
+        .dot.red {
+            background: #ef4444;
+        }
+        .dot.green {
+            background: #22c55e;
+            border-color: #22c55e;
+        }
+        #message {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: none;
+            background: rgba(11, 14, 23, 0.85);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 16px;
+            padding: 16px 32px;
+            font-size: 18px;
+            font-weight: 500;
+            letter-spacing: 0.5px;
+            text-align: center;
+            transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            opacity: 0;
+            transform: translateX(-50%) translateY(20px);
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.6);
+            max-width: 90%;
+        }
+        #message.show {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
+        #message.success {
+            border-color: #4ade80;
+            color: #4ade80;
+        }
+        #message.fail {
+            border-color: #f87171;
+            color: #f87171;
+        }
+        #message.info {
+            border-color: #60a5fa;
+            color: #60a5fa;
+        }
+        #message.trick {
+            border-color: #facc15;
+            color: #facc15;
+        }
+        #controls-hint {
+            position: absolute;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            pointer-events: none;
+            background: rgba(11, 14, 23, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 10px 20px;
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.4);
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        #controls-hint kbd {
+            background: rgba(255, 255, 255, 0.08);
+            padding: 2px 10px;
+            border-radius: 6px;
+            font-family: inherit;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 13px;
+            border: 1px solid rgba(255, 255, 255, 0.06);
+        }
+        #draft-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 100;
+            justify-content: center;
+            align-items: center;
+        }
+        #draft-modal.show {
+            display: flex;
+        }
+        .draft-panel {
+            background: rgba(20, 25, 40, 0.95);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 24px;
+            width: 90%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.8);
+        }
+        .draft-panel h3 {
+            text-align: center;
+            color: #facc15;
+        }
+        .draft-grid {
+            display: grid;
+            gap: 4px;
+            justify-content: center;
+        }
+        .draft-cell {
+            width: 48px;
+            height: 48px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            cursor: pointer;
+        }
+        .draft-cell.ban {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+        }
+        .draft-cell.target {
+            background: rgba(34, 197, 94, 0.3);
+            border-color: #22c55e;
+        }
+        .draft-cell.current {
+            box-shadow: 0 0 12px #facc15;
+            border-color: #facc15;
+        }
+        .draft-info {
+            display: flex;
+            justify-content: space-between;
+            color: rgba(255, 255, 255, 0.7);
+        }
+        .draft-buttons {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .draft-buttons button {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            padding: 8px 16px;
+            color: #fff;
+            cursor: pointer;
+        }
+        .draft-buttons button.primary {
+            background: #facc15;
+            color: #0b0e17;
+            border-color: #facc15;
+            font-weight: 600;
+        }
+        #dev-panel {
+            display: none;
+            position: fixed;
+            top: 80px;
+            right: 30px;
+            background: rgba(20, 25, 40, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid #facc15;
+            border-radius: 12px;
+            padding: 16px;
+            z-index: 200;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+        }
+        #dev-panel.show {
+            display: flex;
+        }
+        #dev-panel button {
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 6px 12px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        #dev-panel button.active {
+            background: #facc15;
+            color: #000;
+            border-color: #facc15;
+        }
+        #dev-panel .dev-title {
+            color: #facc15;
+            font-weight: bold;
+            text-align: center;
+        }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 300;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            pointer-events: none;
+        }
+        .loading-overlay .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.2);
+            border-top: 3px solid #facc15;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+        #direction-picker {
+            display: none;
+            position: fixed;
+            z-index: 400;
+            background: rgba(20, 25, 40, 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid #facc15;
+            border-radius: 12px;
+            padding: 16px;
+            flex-direction: column;
+            gap: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+        }
+        #direction-picker.show {
+            display: flex;
+        }
+        #direction-picker .pick-btn {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 8px;
+            padding: 10px 16px;
+            color: #fff;
+            cursor: pointer;
+            font-size: 14px;
+            transition: 0.2s;
+        }
+        #direction-picker .pick-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        .picker-backdrop {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 399;
+        }
+        .picker-backdrop.show {
+            display: block;
+        }
     </style>
 </head>
 <body>
@@ -104,7 +453,7 @@
         </div>
         <div class="picker-backdrop" id="picker-backdrop"></div>
         <div id="direction-picker">
-            <div style="color:#fff; text-align:center; margin-bottom:4px;">请选择基准方块</div>
+            <div style="color:#fff;text-align:center;margin-bottom:4px;">请选择基准方块</div>
             <button class="pick-btn" id="pick-c1">方块1</button>
             <button class="pick-btn" id="pick-c2">方块2</button>
         </div>
@@ -143,32 +492,52 @@
 
         const MAX_GRID_SIZE = 6;
         let GRID_SIZE = 3;
-        const CUBE_SIZE = 0.72, CELL = 1.0, DUR = 300;
+        const CUBE_SIZE = 0.72,
+            CELL = 1.0,
+            DUR = 300;
         const FACE_NORMALS = [
-            new THREE.Vector3(1,0,0), new THREE.Vector3(-1,0,0),
-            new THREE.Vector3(0,1,0), new THREE.Vector3(0,-1,0),
-            new THREE.Vector3(0,0,1), new THREE.Vector3(0,0,-1)
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(-1, 0, 0),
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(0, -1, 0),
+            new THREE.Vector3(0, 0, 1),
+            new THREE.Vector3(0, 0, -1)
         ];
 
         let gameMode = 'single';
-        let currentLevel = 1, steps = 0;
-        let isAnimating = false, isLevelComplete = false;
+        let currentLevel = 1,
+            steps = 0;
+        let isAnimating = false,
+            isLevelComplete = false;
         let hintDisabled = false;
         let isGenerating = false;
         let isSearching = false;
+        let isPendingReset = false;
+        let resetPendingTimeout = null;
+        let nextLevelTimeout = null;
 
-        let cubePos = {x:0,y:0}, targetPos = {x:1,y:1}, banSet = new Set();
-        let startState = null, targetSteps = 0, targetType = 'shortest';
+        let cubePos = { x: 0, y: 0 },
+            targetPos = { x: 1, y: 1 },
+            banSet = new Set();
+        let startState = null,
+            targetSteps = 0,
+            targetType = 'shortest';
         let extraGoal = null;
 
         let globalBan = new Set();
-        let c1 = {pos:{x:0,y:0}, quat:new THREE.Quaternion(), target:{x:1,y:1}};
-        let c2 = {pos:{x:0,y:0}, quat:new THREE.Quaternion(), target:{x:1,y:1}};
+        let c1 = { pos: { x: 0, y: 0 }, quat: new THREE.Quaternion(), target: { x: 1, y: 1 } };
+        let c2 = { pos: { x: 0, y: 0 }, quat: new THREE.Quaternion(), target: { x: 1, y: 1 } };
 
         let animData = {
-            startTime:0,
-            s1: new THREE.Vector3(), e1: new THREE.Vector3(), qs1: new THREE.Quaternion(), qe1: new THREE.Quaternion(),
-            s2: new THREE.Vector3(), e2: new THREE.Vector3(), qs2: new THREE.Quaternion(), qe2: new THREE.Quaternion(),
+            startTime: 0,
+            s1: new THREE.Vector3(),
+            e1: new THREE.Vector3(),
+            qs1: new THREE.Quaternion(),
+            qe1: new THREE.Quaternion(),
+            s2: new THREE.Vector3(),
+            e2: new THREE.Vector3(),
+            qs2: new THREE.Quaternion(),
+            qe2: new THREE.Quaternion(),
             dual: false
         };
 
@@ -184,7 +553,9 @@
         let hintCache = null;
 
         const loadingOverlay = document.getElementById('loading-overlay');
+
         function showLoading() { loadingOverlay.style.display = 'flex'; }
+
         function hideLoading() { loadingOverlay.style.display = 'none'; }
 
         const directionPicker = document.getElementById('direction-picker');
@@ -193,7 +564,6 @@
         const pickC2Btn = document.getElementById('pick-c2');
 
         let isPickingDirection = false;
-        let pendingRoll = null; // { dx, dy }
 
         function showDirectionPicker(c1Dir, c2Dir, onSelect) {
             isPickingDirection = true;
@@ -202,14 +572,14 @@
             const c2Key = `${c2Dir.dx},${c2Dir.dy}`;
             pickC1Btn.textContent = `🔴 方块1 ${dirChars[c1Key] || ''}`;
             pickC2Btn.textContent = `🔵 方块2 ${dirChars[c2Key] || ''}`;
-            
+
             const rect = container.getBoundingClientRect();
-            const centerX = rect.left + rect.width/2;
-            const centerY = rect.top + rect.height/2;
+            const centerX = rect.left + rect.width / 2;
+            const centerY = rect.top + rect.height / 2;
             directionPicker.style.left = `${centerX}px`;
             directionPicker.style.top = `${centerY}px`;
             directionPicker.style.transform = 'translate(-50%, -50%)';
-            
+
             directionPicker.classList.add('show');
             pickerBackdrop.classList.add('show');
 
@@ -235,172 +605,253 @@
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x0b0e17);
-        const camera = new THREE.PerspectiveCamera(45, container.clientWidth/container.clientHeight, 0.1, 30);
-        camera.position.set(7,6,10); camera.lookAt(1.5,0,1.5);
-        const renderer = new THREE.WebGLRenderer({antialias:true});
+        const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 30);
+        camera.position.set(7, 6, 10);
+        camera.lookAt(1.5, 0, 1.5);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(container.clientWidth, container.clientHeight);
-        renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
         renderer.shadowMap.enabled = true;
         container.appendChild(renderer.domElement);
-        scene.add(new THREE.AmbientLight(0x404060,0.6));
-        const dirLight = new THREE.DirectionalLight(0xffeedd,2.8);
-        dirLight.position.set(8,15,10); dirLight.castShadow = true; scene.add(dirLight);
+        scene.add(new THREE.AmbientLight(0x404060, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffeedd, 2.8);
+        dirLight.position.set(8, 15, 10);
+        dirLight.castShadow = true;
+        scene.add(dirLight);
 
-        const gridGroup = new THREE.Group(); scene.add(gridGroup);
-        const gridLines = new THREE.Group(); gridGroup.add(gridLines);
-        const banGroup1 = new THREE.Group(); gridGroup.add(banGroup1);
-        const targetGroup1 = new THREE.Group(); gridGroup.add(targetGroup1);
-        const targetGroup2 = new THREE.Group(); gridGroup.add(targetGroup2);
+        const gridGroup = new THREE.Group();
+        scene.add(gridGroup);
+        const gridLines = new THREE.Group();
+        gridGroup.add(gridLines);
+        const banGroup1 = new THREE.Group();
+        gridGroup.add(banGroup1);
+        const targetGroup1 = new THREE.Group();
+        gridGroup.add(targetGroup1);
+        const targetGroup2 = new THREE.Group();
+        gridGroup.add(targetGroup2);
 
-        const cubeGroup1 = new THREE.Group(); scene.add(cubeGroup1);
-        const cubeGroup2 = new THREE.Group(); scene.add(cubeGroup2);
-        const matGen = (c) => new THREE.MeshStandardMaterial({color:c, roughness:0.3, metalness:0.1});
-        const mats1 = [0xf97316,0x22c55e,0xef4444,0x3b82f6,0xeab308,0xa855f7].map(matGen);
-        const mats2 = mats1.map(m=>{const n=m.clone(); n.transparent=true; n.opacity=0.85; return n;});
-        const cubeGeo = new THREE.BoxGeometry(CUBE_SIZE,CUBE_SIZE,CUBE_SIZE);
-        const mesh1 = new THREE.Mesh(cubeGeo, mats1); mesh1.castShadow = true; cubeGroup1.add(mesh1);
-        const mesh2 = new THREE.Mesh(cubeGeo, mats2); mesh2.castShadow = true; cubeGroup2.add(mesh2);
+        const cubeGroup1 = new THREE.Group();
+        scene.add(cubeGroup1);
+        const cubeGroup2 = new THREE.Group();
+        scene.add(cubeGroup2);
+        const matGen = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.3, metalness: 0.1 });
+        const mats1 = [0xf97316, 0x22c55e, 0xef4444, 0x3b82f6, 0xeab308, 0xa855f7].map(matGen);
+        const mats2 = mats1.map(m => { const n = m.clone();
+            n.transparent = true;
+            n.opacity = 0.85; return n; });
+        const cubeGeo = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
+        const mesh1 = new THREE.Mesh(cubeGeo, mats1);
+        mesh1.castShadow = true;
+        cubeGroup1.add(mesh1);
+        const mesh2 = new THREE.Mesh(cubeGeo, mats2);
+        mesh2.castShadow = true;
+        cubeGroup2.add(mesh2);
 
         function buildGrid() {
-            while(gridLines.children.length) gridLines.remove(gridLines.children[0]);
-            const mat = new THREE.LineBasicMaterial({color:0x2a3a5a, transparent:true, opacity:0.5});
-            for(let x=0;x<GRID_SIZE;x++) for(let y=0;y<GRID_SIZE;y++) {
-                const pts = [new THREE.Vector3(x,0.002,y),new THREE.Vector3(x+1,0.002,y),new THREE.Vector3(x+1,0.002,y+1),new THREE.Vector3(x,0.002,y+1),new THREE.Vector3(x,0.002,y)];
-                gridLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts),mat));
+            while (gridLines.children.length) gridLines.remove(gridLines.children[0]);
+            const mat = new THREE.LineBasicMaterial({ color: 0x2a3a5a, transparent: true, opacity: 0.5 });
+            for (let x = 0; x < GRID_SIZE; x++)
+                for (let y = 0; y < GRID_SIZE; y++) {
+                    const pts = [
+                        new THREE.Vector3(x, 0.002, y),
+                        new THREE.Vector3(x + 1, 0.002, y),
+                        new THREE.Vector3(x + 1, 0.002, y + 1),
+                        new THREE.Vector3(x, 0.002, y + 1),
+                        new THREE.Vector3(x, 0.002, y)
+                    ];
+                    gridLines.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), mat));
+                }
+        }
+
+        function clear(group) { while (group.children.length) group.remove(group.children[0]); }
+
+        function addBan(group, set, color = 0xef4444) {
+            clear(group);
+            if (!set.size) return;
+            const geo = new THREE.PlaneGeometry(CELL - 0.06, CELL - 0.06);
+            const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.25,
+            side: THREE.DoubleSide });
+            for (const k of set) {
+                const [x, y] = k.split(',').map(Number);
+                const m = new THREE.Mesh(geo, mat);
+                m.rotation.x = -Math.PI / 2;
+                m.position.set(x + 0.5, 0.003, y + 0.5);
+                group.add(m);
             }
         }
-        function clear(group){while(group.children.length)group.remove(group.children[0]);}
-        function addBan(group, set, color=0xef4444){
-            clear(group); if(!set.size) return;
-            const geo = new THREE.PlaneGeometry(CELL-0.06,CELL-0.06);
-            const mat = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.25, side:THREE.DoubleSide});
-            for(const k of set){ const [x,y]=k.split(',').map(Number); const m=new THREE.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.set(x+0.5,0.003,y+0.5); group.add(m); }
+
+        function setTarget(group, x, y, color = 0x22c55e) {
+            clear(group);
+            const geo = new THREE.PlaneGeometry(CELL - 0.06, CELL - 0.06);
+            const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.3,
+            side: THREE.DoubleSide });
+            const m = new THREE.Mesh(geo, mat);
+            m.rotation.x = -Math.PI / 2;
+            m.position.set(x + 0.5, 0.004, y + 0.5);
+            group.add(m);
         }
-        function setTarget(group, x, y, color=0x22c55e){
-            clear(group); const geo = new THREE.PlaneGeometry(CELL-0.06,CELL-0.06);
-            const mat = new THREE.MeshBasicMaterial({color, transparent:true, opacity:0.3, side:THREE.DoubleSide});
-            const m = new THREE.Mesh(geo,mat); m.rotation.x=-Math.PI/2; m.position.set(x+0.5,0.004,y+0.5); group.add(m);
+
+        function updateCam() {
+            const d = Math.max(GRID_SIZE * 1.8, 5);
+            camera.position.set(d * 0.9, d * 0.7, d * 1.1);
+            camera.lookAt(GRID_SIZE / 2, 0, GRID_SIZE / 2);
         }
-        function updateCam(){ const d=Math.max(GRID_SIZE*1.8,5); camera.position.set(d*0.9,d*0.7,d*1.1); camera.lookAt(GRID_SIZE/2,0,GRID_SIZE/2); }
-        function topFace(q){ const up=new THREE.Vector3(0,1,0).applyQuaternion(q.clone().invert()); let i=2,m=-Infinity; FACE_NORMALS.forEach((n,j)=>{const d=n.dot(up);if(d>m){m=d;i=j;}}); return i; }
+
+        function topFace(q) {
+            const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q.clone().invert());
+            let i = 2,
+                m = -Infinity;
+            FACE_NORMALS.forEach((n, j) => { const d = n.dot(up); if (d > m) { m = d;
+                    i = j; } });
+            return i;
+        }
+
         function getFaceIndexForDir(q, worldDir) {
             const localDir = worldDir.clone().applyQuaternion(q.clone().invert());
-            let idx = 0, max = -Infinity;
-            FACE_NORMALS.forEach((n,i)=>{ const d=n.dot(localDir); if(d>max){ max=d; idx=i; } });
+            let idx = 0,
+                max = -Infinity;
+            FACE_NORMALS.forEach((n, i) => { const d = n.dot(localDir); if (d > max) { max = d;
+                    idx = i; } });
             return idx;
         }
-        function quatStr(q){return `${q.x.toFixed(5)},${q.y.toFixed(5)},${q.z.toFixed(5)},${q.w.toFixed(5)}`;}
-        function applyMove(x,y,q,dx,dy,ban){
-            const nx=x+dx,ny=y+dy; if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE) return null;
-            if(ban.has(`${nx},${ny}`)) return null;
-            const axis=new THREE.Vector3(); const angle=Math.PI/2;
-            if(dx===-1)axis.set(0,0,1); else if(dx===1)axis.set(0,0,-1);
-            else if(dy===-1)axis.set(-1,0,0); else if(dy===1)axis.set(1,0,0);
-            const rot=new THREE.Quaternion().setFromAxisAngle(axis,angle);
-            return {x:nx,y:ny,quat:rot.clone().multiply(q).normalize()};
+
+        function quatStr(q) { return `${q.x.toFixed(5)},${q.y.toFixed(5)},${q.z.toFixed(5)},${q.w.toFixed(5)}`; }
+
+        function applyMove(x, y, q, dx, dy, ban) {
+            const nx = x + dx,
+                ny = y + dy;
+            if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) return null;
+            if (ban.has(`${nx},${ny}`)) return null;
+            const axis = new THREE.Vector3();
+            const angle = Math.PI / 2;
+            if (dx === -1) axis.set(0, 0, 1);
+            else if (dx === 1) axis.set(0, 0, -1);
+            else if (dy === -1) axis.set(-1, 0, 0);
+            else if (dy === 1) axis.set(1, 0, 0);
+            const rot = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+            return { x: nx, y: ny, quat: rot.clone().multiply(q).normalize() };
         }
 
         async function bfsDualSolutionAsync(start1, start2, target1, target2, ban) {
-            const stateKey = (p1,p2,q1,q2) => `${p1.x},${p1.y},${p2.x},${p2.y},${quatStr(q1)},${quatStr(q2)}`;
+            const stateKey = (p1, p2, q1, q2) =>
+                `${p1.x},${p1.y},${p2.x},${p2.y},${quatStr(q1)},${quatStr(q2)}`;
             const startKey = stateKey(start1.pos, start2.pos, start1.quat, start2.quat);
-            const queue = [{pos1:start1.pos, pos2:start2.pos, quat1:start1.quat.clone(), quat2:start2.quat.clone()}];
-            const visited = new Map(); visited.set(startKey, null);
-            const dirs = [{dx:-1,dy:0,name:'←'},{dx:1,dy:0,name:'→'},{dx:0,dy:-1,name:'↑'},{dx:0,dy:1,name:'↓'}];
+            const queue = [{ pos1: start1.pos, pos2: start2.pos, quat1: start1.quat.clone(), quat2: start2.quat
+                    .clone() }];
+            const visited = new Map();
+            visited.set(startKey, null);
+            const dirs = [{ dx: -1, dy: 0, name: '←' }, { dx: 1, dy: 0, name: '→' }, { dx: 0, dy: -1, name: '↑' },
+            { dx: 0, dy: 1, name: '↓' }];
             let count = 0;
-            while(queue.length) {
+            while (queue.length) {
                 if (count++ % 80 === 0) await new Promise(r => setTimeout(r, 0));
                 const cur = queue.shift();
                 const curKey = stateKey(cur.pos1, cur.pos2, cur.quat1, cur.quat2);
-                if(cur.pos1.x===target1.x && cur.pos1.y===target1.y && topFace(cur.quat1)===2 &&
-                   cur.pos2.x===target2.x && cur.pos2.y===target2.y && topFace(cur.quat2)===2) {
-                    const path = []; let key = curKey;
-                    while(visited.get(key)) { const {prevKey, dir} = visited.get(key); path.unshift(dir); key = prevKey; }
+                if (cur.pos1.x === target1.x && cur.pos1.y === target1.y && topFace(cur.quat1) === 2 &&
+                    cur.pos2.x === target2.x && cur.pos2.y === target2.y && topFace(cur.quat2) === 2) {
+                    const path = [];
+                    let key = curKey;
+                    while (visited.get(key)) { const { prevKey, dir } = visited.get(key);
+                        path.unshift(dir);
+                        key = prevKey; }
                     return path;
                 }
-                for(const d of dirs) {
+                for (const d of dirs) {
                     const m1 = applyMove(cur.pos1.x, cur.pos1.y, cur.quat1, d.dx, d.dy, ban);
                     const m2 = applyMove(cur.pos2.x, cur.pos2.y, cur.quat2, d.dx, d.dy, ban);
-                    let f1=m1, f2=m2;
-                    if(f1 && f2 && f1.x===f2.x && f1.y===f2.y){ f1=null; f2=null; }
-                    if(f1 && !f2 && cur.pos2.x===f1.x && cur.pos2.y===f1.y) f1=null;
-                    if(f2 && !f1 && cur.pos1.x===f2.x && cur.pos1.y===f2.y) f2=null;
-                    if(!f1 && !f2) continue;
-                    const nextPos1 = f1 ? {x:f1.x, y:f1.y} : {...cur.pos1};
-                    const nextPos2 = f2 ? {x:f2.x, y:f2.y} : {...cur.pos2};
+                    let f1 = m1,
+                        f2 = m2;
+                    if (f1 && f2 && f1.x === f2.x && f1.y === f2.y) { f1 = null;
+                        f2 = null; }
+                    if (f1 && !f2 && cur.pos2.x === f1.x && cur.pos2.y === f1.y) f1 = null;
+                    if (f2 && !f1 && cur.pos1.x === f2.x && cur.pos1.y === f2.y) f2 = null;
+                    if (!f1 && !f2) continue;
+                    const nextPos1 = f1 ? { x: f1.x, y: f1.y } : { ...cur.pos1 };
+                    const nextPos2 = f2 ? { x: f2.x, y: f2.y } : { ...cur.pos2 };
                     const nextQuat1 = f1 ? f1.quat.clone() : cur.quat1.clone();
                     const nextQuat2 = f2 ? f2.quat.clone() : cur.quat2.clone();
                     const nextKey = stateKey(nextPos1, nextPos2, nextQuat1, nextQuat2);
-                    if(visited.has(nextKey)) continue;
-                    visited.set(nextKey, {prevKey: curKey, dir: d.name});
-                    queue.push({pos1:nextPos1, pos2:nextPos2, quat1:nextQuat1, quat2:nextQuat2});
+                    if (visited.has(nextKey)) continue;
+                    visited.set(nextKey, { prevKey: curKey, dir: d.name });
+                    queue.push({ pos1: nextPos1, pos2: nextPos2, quat1: nextQuat1, quat2: nextQuat2 });
                 }
             }
             return null;
         }
 
         function checkExtraGoal(q, goal) {
-            if(!goal) return true;
+            if (!goal) return true;
             const { face, dir } = goal;
             let worldDir;
-            if(dir === 'right') worldDir = new THREE.Vector3(1,0,0);
+            if (dir === 'right') worldDir = new THREE.Vector3(1, 0, 0);
             else return true;
             const currentFace = getFaceIndexForDir(q, worldDir);
             return currentFace === face;
         }
 
         async function findSingleSolutionAsync(startX, startY, startQuat, ban, targetX, targetY, extraGoal) {
-            const key = (x,y,q) => `${x},${y},${quatStr(q)}`;
+            const key = (x, y, q) => `${x},${y},${quatStr(q)}`;
             const startKey = key(startX, startY, startQuat);
-            const queue = [{x:startX, y:startY, quat:startQuat.clone()}];
-            const visited = new Map(); visited.set(startKey, null);
-            const dirs = [{dx:-1,dy:0,name:'←'},{dx:1,dy:0,name:'→'},{dx:0,dy:-1,name:'↑'},{dx:0,dy:1,name:'↓'}];
+            const queue = [{ x: startX, y: startY, quat: startQuat.clone() }];
+            const visited = new Map();
+            visited.set(startKey, null);
+            const dirs = [{ dx: -1, dy: 0, name: '←' }, { dx: 1, dy: 0, name: '→' }, { dx: 0, dy: -1, name: '↑' },
+            { dx: 0, dy: 1, name: '↓' }];
             let count = 0;
-            while(queue.length) {
+            while (queue.length) {
                 if (count++ % 200 === 0) await new Promise(r => setTimeout(r, 0));
                 const cur = queue.shift();
                 const curKey = key(cur.x, cur.y, cur.quat);
-                if(cur.x === targetX && cur.y === targetY && topFace(cur.quat) === 2 && checkExtraGoal(cur.quat, extraGoal)) {
-                    const path = []; let k = curKey;
-                    while(visited.get(k)) { const {prevKey, dir} = visited.get(k); path.unshift(dir); k = prevKey; }
+                if (cur.x === targetX && cur.y === targetY && topFace(cur.quat) === 2 && checkExtraGoal(cur.quat,
+                        extraGoal)) {
+                    const path = [];
+                    let k = curKey;
+                    while (visited.get(k)) { const { prevKey, dir } = visited.get(k);
+                        path.unshift(dir);
+                        k = prevKey; }
                     return path;
                 }
-                for(const d of dirs) {
+                for (const d of dirs) {
                     const next = applyMove(cur.x, cur.y, cur.quat, d.dx, d.dy, ban);
-                    if(!next) continue;
+                    if (!next) continue;
                     const nk = key(next.x, next.y, next.quat);
-                    if(visited.has(nk)) continue;
-                    visited.set(nk, {prevKey: curKey, dir: d.name});
-                    queue.push({x:next.x, y:next.y, quat:next.quat});
+                    if (visited.has(nk)) continue;
+                    visited.set(nk, { prevKey: curKey, dir: d.name });
+                    queue.push({ x: next.x, y: next.y, quat: next.quat });
                 }
             }
             return null;
         }
 
-        async function findAllPathsAsync(sx,sy,sq,ban,tx,ty,extraGoal){
+        async function findAllPathsAsync(sx, sy, sq, ban, tx, ty, extraGoal) {
             const paths = new Map();
-            const dirs = [{dx:-1,dy:0},{dx:1,dy:0},{dx:0,dy:-1},{dx:0,dy:1}];
+            const dirs = [{ dx: -1, dy: 0 }, { dx: 1, dy: 0 }, { dx: 0, dy: -1 }, { dx: 0, dy: 1 }];
             const vis = new Set();
             let nodeCount = 0;
-            async function dfs(x,y,q,len){
-                if(len > 40) return;
+            async function dfs(x, y, q, len) {
+                if (len > 40) return;
                 nodeCount++;
-                if(nodeCount % 200 === 0) await new Promise(r => setTimeout(r, 0));
-                if(x===tx&&y===ty&&topFace(q)===2&&checkExtraGoal(q,extraGoal)){
-                    if(!paths.has(len))paths.set(len,0);
-                    paths.set(len,paths.get(len)+1);
+                if (nodeCount % 200 === 0) await new Promise(r => setTimeout(r, 0));
+                if (x === tx && y === ty && topFace(q) === 2 && checkExtraGoal(q, extraGoal)) {
+                    if (!paths.has(len)) paths.set(len, 0);
+                    paths.set(len, paths.get(len) + 1);
                     return;
                 }
-                for(const d of dirs){
-                    const nx=x+d.dx,ny=y+d.dy,nkey=`${nx},${ny}`;
-                    if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE||ban.has(nkey)||vis.has(nkey)) continue;
-                    const next=applyMove(x,y,q,d.dx,d.dy,ban); if(!next) continue;
+                for (const d of dirs) {
+                    const nx = x + d.dx,
+                        ny = y + d.dy,
+                        nkey = `${nx},${ny}`;
+                    if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE || ban.has(nkey) || vis.has(nkey))
+                        continue;
+                    const next = applyMove(x, y, q, d.dx, d.dy, ban);
+                    if (!next) continue;
                     vis.add(nkey);
-                    await dfs(next.x,next.y,next.quat,len+1);
+                    await dfs(next.x, next.y, next.quat, len + 1);
                     vis.delete(nkey);
                 }
             }
             vis.add(`${sx},${sy}`);
-            await dfs(sx,sy,sq.clone(),0);
+            await dfs(sx, sy, sq.clone(), 0);
             return paths;
         }
 
@@ -411,88 +862,127 @@
             return 6;
         }
 
-        async function genSingleAsync(level,size){
-            const total=size*size;
+        async function genSingleAsync(level, size) {
+            const total = size * size;
             const maxBanRatio = size >= 6 ? 0.33 : (size >= 5 ? 0.35 : 0.6);
             const maxBan = Math.floor(total * maxBanRatio);
-            const banCountBase = size <= 3 ? Math.floor((level-1)/3) : Math.floor((level-1)/2);
-            const banCount = Math.min(total-2, Math.min(maxBan, banCountBase));
-            const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
-            const extra = size>=4 ? { face: 1, dir: 'right' } : null;
+            const banCountBase = size <= 3 ? Math.floor((level - 1) / 3) : Math.floor((level - 1) / 2);
+            const banCount = Math.min(total - 2, Math.min(maxBan, banCountBase));
+            const all = [];
+            for (let x = 0; x < size; x++)
+                for (let y = 0; y < size; y++) all.push({ x, y });
+            const extra = size >= 4 ? { face: 1, dir: 'right' } : null;
             const useKShort = size <= 4;
             const minStepsForLarge = size >= 6 ? 5 : (size >= 5 ? 4 : 2);
 
-            for(let a=0;a<1000;a++){
-                if(a % 20 === 0) await new Promise(r => setTimeout(r, 0));
-                const sh=[...all].sort(()=>Math.random()-0.5), ban=new Set();
-                for(let i=0;i<banCount;i++)ban.add(`${sh[i].x},${sh[i].y}`);
-                const avail=all.filter(p=>!ban.has(`${p.x},${p.y}`)); if(avail.length<2)continue;
-                const start=avail[Math.floor(Math.random()*avail.length)];
-                const tars=avail.filter(p=>p.x!==start.x||p.y!==start.y);
-                if(!tars.length) continue;
-                const manhattanDist = (p) => Math.abs(p.x-start.x)+Math.abs(p.y-start.y);
-                tars.sort((a,b)=>manhattanDist(b)-manhattanDist(a));
-                const topTars = tars.slice(0, Math.max(Math.floor(tars.length*0.6),1));
-                const target=topTars[Math.floor(Math.random()*topTars.length)];
-                const face=Math.floor(Math.random()*6);
-                const q=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[face],new THREE.Vector3(0,1,0)).normalize();
+            for (let a = 0; a < 1000; a++) {
+                if (a % 20 === 0) await new Promise(r => setTimeout(r, 0));
+                const sh = [...all].sort(() => Math.random() - 0.5),
+                    ban = new Set();
+                for (let i = 0; i < banCount; i++) ban.add(`${sh[i].x},${sh[i].y}`);
+                const avail = all.filter(p => !ban.has(`${p.x},${p.y}`));
+                if (avail.length < 2) continue;
+                const start = avail[Math.floor(Math.random() * avail.length)];
+                const tars = avail.filter(p => p.x !== start.x || p.y !== start.y);
+                if (!tars.length) continue;
+                const manhattanDist = (p) => Math.abs(p.x - start.x) + Math.abs(p.y - start.y);
+                tars.sort((a, b) => manhattanDist(b) - manhattanDist(a));
+                const topTars = tars.slice(0, Math.max(Math.floor(tars.length * 0.6), 1));
+                const target = topTars[Math.floor(Math.random() * topTars.length)];
+                const face = Math.floor(Math.random() * 6);
+                const q = new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[face], new THREE.Vector3(0, 1, 0))
+                    .normalize();
 
-                if(useKShort){
-                    const paths = await findAllPathsAsync(start.x,start.y,q,ban,target.x,target.y,extra);
-                    if(!paths.size) continue; const lens=[...paths.keys()].sort((a,b)=>a-b);
-                    if(lens[0] < minStepsForLarge) continue;
-                    let chosen,type;
+                if (useKShort) {
+                    const paths = await findAllPathsAsync(start.x, start.y, q, ban, target.x, target.y, extra);
+                    if (!paths.size) continue;
+                    const lens = [...paths.keys()].sort((a, b) => a - b);
+                    if (lens[0] < minStepsForLarge) continue;
+                    let chosen, type;
                     const forceKth = devForceKth;
-                    if(forceKth === true && lens.length > 1) {
+                    if (forceKth === true && lens.length > 1) {
                         const kc = lens.filter(l => l > lens[0]);
-                        if(!kc.length) continue;
+                        if (!kc.length) continue;
                         chosen = kc[Math.floor(Math.random() * kc.length)];
                         type = 'kth';
-                    } else if(forceKth === false) {
-                        chosen = lens[0]; type = 'shortest';
+                    } else if (forceKth === false) {
+                        chosen = lens[0];
+                        type = 'shortest';
                     } else {
-                        if(lens.length > 1 && Math.random() < 0.7) {
+                        if (lens.length > 1 && Math.random() < 0.7) {
                             const kc = lens.filter(l => l > lens[0]);
                             chosen = kc[Math.floor(Math.random() * kc.length)];
                             type = 'kth';
                         } else {
-                            chosen = lens[0]; type = 'shortest';
+                            chosen = lens[0];
+                            type = 'shortest';
                         }
                     }
-                    const solutionPath = await findSingleSolutionAsync(start.x, start.y, q, ban, target.x, target.y, extra);
-                    return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:chosen,targetType:type,extraGoal:extra, solutionPath: solutionPath || []};
+                    const solutionPath = await findSingleSolutionAsync(start.x, start.y, q, ban, target.x, target.y,
+                        extra);
+                    return {
+                        startX: start.x,
+                        startY: start.y,
+                        targetX: target.x,
+                        targetY: target.y,
+                        startFace: face,
+                        ban,
+                        targetSteps: chosen,
+                        targetType: type,
+                        extraGoal: extra,
+                        solutionPath: solutionPath || []
+                    };
                 } else {
-                    const solution = await findSingleSolutionAsync(start.x,start.y,q,ban,target.x,target.y,extra);
-                    if(!solution || solution.length < minStepsForLarge) continue;
-                    return {startX:start.x,startY:start.y,targetX:target.x,targetY:target.y,startFace:face,ban,targetSteps:solution.length,targetType:'shortest',extraGoal:extra, solutionPath: solution};
+                    const solution = await findSingleSolutionAsync(start.x, start.y, q, ban, target.x, target.y, extra);
+                    if (!solution || solution.length < minStepsForLarge) continue;
+                    return {
+                        startX: start.x,
+                        startY: start.y,
+                        targetX: target.x,
+                        targetY: target.y,
+                        startFace: face,
+                        ban,
+                        targetSteps: solution.length,
+                        targetType: 'shortest',
+                        extraGoal: extra,
+                        solutionPath: solution
+                    };
                 }
             }
             return null;
         }
 
-        async function genDualAsync(size){
-            const all=[]; for(let x=0;x<size;x++)for(let y=0;y<size;y++)all.push({x,y});
-            const maxBanCount = size >= 6 ? Math.floor(size*size*0.25) : Math.floor(size*size/3);
-            for(let a=0;a<600;a++){
-                if(a % 15 === 0) await new Promise(r => setTimeout(r, 0));
-                const banCount = Math.min(size*size-4, Math.floor(Math.random()*maxBanCount)+1);
-                const sh=[...all].sort(()=>Math.random()-0.5); const ban = new Set();
-                for(let i=0;i<banCount;i++) ban.add(`${sh[i].x},${sh[i].y}`);
-                const avail = all.filter(p=>!ban.has(`${p.x},${p.y}`)); if(avail.length<4) continue;
-                const s1=avail[Math.floor(Math.random()*avail.length)];
-                const rem1=avail.filter(p=>p.x!==s1.x||p.y!==s1.y);
-                const s2=rem1[Math.floor(Math.random()*rem1.length)];
-                const rem2=rem1.filter(p=>p.x!==s2.x||p.y!==s2.y);
-                const t1=rem2[Math.floor(Math.random()*rem2.length)];
-                const rem3=rem2.filter(p=>p.x!==t1.x||p.y!==t1.y);
-                if(!rem3.length) continue;
-                const t2=rem3[Math.floor(Math.random()*rem3.length)];
-                const f1=Math.floor(Math.random()*6), f2=Math.floor(Math.random()*6);
-                const q1=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[f1],new THREE.Vector3(0,1,0)).normalize();
-                const q2=new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[f2],new THREE.Vector3(0,1,0)).normalize();
-                const solutionPath = await bfsDualSolutionAsync({pos:s1,quat:q1},{pos:s2,quat:q2},t1,t2,ban);
-                if(!solutionPath) continue;
-                return {ban, c1:{pos:s1,target:t1,quat:q1}, c2:{pos:s2,target:t2,quat:q2}, solutionPath};
+        async function genDualAsync(size) {
+            const all = [];
+            for (let x = 0; x < size; x++)
+                for (let y = 0; y < size; y++) all.push({ x, y });
+            const maxBanCount = size >= 6 ? Math.floor(size * size * 0.25) : Math.floor(size * size / 3);
+            for (let a = 0; a < 600; a++) {
+                if (a % 15 === 0) await new Promise(r => setTimeout(r, 0));
+                const banCount = Math.min(size * size - 4, Math.floor(Math.random() * maxBanCount) + 1);
+                const sh = [...all].sort(() => Math.random() - 0.5);
+                const ban = new Set();
+                for (let i = 0; i < banCount; i++) ban.add(`${sh[i].x},${sh[i].y}`);
+                const avail = all.filter(p => !ban.has(`${p.x},${p.y}`));
+                if (avail.length < 4) continue;
+                const s1 = avail[Math.floor(Math.random() * avail.length)];
+                const rem1 = avail.filter(p => p.x !== s1.x || p.y !== s1.y);
+                const s2 = rem1[Math.floor(Math.random() * rem1.length)];
+                const rem2 = rem1.filter(p => p.x !== s2.x || p.y !== s2.y);
+                const t1 = rem2[Math.floor(Math.random() * rem2.length)];
+                const rem3 = rem2.filter(p => p.x !== t1.x || p.y !== t1.y);
+                if (!rem3.length) continue;
+                const t2 = rem3[Math.floor(Math.random() * rem3.length)];
+                const f1 = Math.floor(Math.random() * 6),
+                    f2 = Math.floor(Math.random() * 6);
+                const q1 = new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[f1], new THREE.Vector3(0, 1, 0))
+                    .normalize();
+                const q2 = new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[f2], new THREE.Vector3(0, 1, 0))
+                    .normalize();
+                const solutionPath = await bfsDualSolutionAsync({ pos: s1, quat: q1 }, { pos: s2, quat: q2 }, t1, t2, ban);
+                if (!solutionPath) continue;
+                return { ban, c1: { pos: s1, target: t1, quat: q1 }, c2: { pos: s2, target: t2, quat: q2 },
+                    solutionPath };
             }
             return null;
         }
@@ -523,8 +1013,12 @@
             steps = 0;
             isLevelComplete = false;
             isAnimating = false;
+            isPendingReset = false;
             hintCache = null;
+            if (resetPendingTimeout) { clearTimeout(resetPendingTimeout);
+                resetPendingTimeout = null; }
             if (currentMapData.type === 'single') {
+                gameMode = 'single'; // 确保模式同步
                 const data = currentMapData;
                 banSet = new Set(data.banSet);
                 targetPos = { ...data.targetPos };
@@ -532,7 +1026,7 @@
                 targetType = data.targetType;
                 extraGoal = data.extraGoal ? { ...data.extraGoal } : null;
                 cubePos = { x: data.startState.x, y: data.startState.y };
-                cubeGroup1.position.set(cubePos.x + 0.5, CUBE_SIZE/2, cubePos.y + 0.5);
+                cubeGroup1.position.set(cubePos.x + 0.5, CUBE_SIZE / 2, cubePos.y + 0.5);
                 cubeGroup1.quaternion.copy(data.startState.quat);
                 startState = { x: cubePos.x, y: cubePos.y, quat: cubeGroup1.quaternion.clone() };
                 addBan(banGroup1, banSet);
@@ -540,6 +1034,7 @@
                 clear(targetGroup2);
                 cubeGroup2.visible = false;
             } else {
+                gameMode = 'dual';
                 const data = currentMapData;
                 globalBan = new Set(data.globalBan);
                 c1.pos = { ...data.c1start.pos };
@@ -548,9 +1043,9 @@
                 c2.pos = { ...data.c2start.pos };
                 c2.quat.copy(data.c2start.quat);
                 c2.target = { ...data.c2start.target };
-                cubeGroup1.position.set(c1.pos.x+0.5, CUBE_SIZE/2, c1.pos.y+0.5);
+                cubeGroup1.position.set(c1.pos.x + 0.5, CUBE_SIZE / 2, c1.pos.y + 0.5);
                 cubeGroup1.quaternion.copy(c1.quat);
-                cubeGroup2.position.set(c2.pos.x+0.5, CUBE_SIZE/2, c2.pos.y+0.5);
+                cubeGroup2.position.set(c2.pos.x + 0.5, CUBE_SIZE / 2, c2.pos.y + 0.5);
                 cubeGroup2.quaternion.copy(c2.quat);
                 cubeGroup2.visible = true;
                 addBan(banGroup1, globalBan);
@@ -564,21 +1059,31 @@
         }
 
         function applySingleGen(gen, level) {
-            currentLevel = level; steps = 0; isLevelComplete = false; isAnimating = false;
-            banSet = gen.ban; targetSteps = gen.targetSteps; targetType = gen.targetType;
+            currentLevel = level;
+            steps = 0;
+            isLevelComplete = false;
+            isAnimating = false;
+            isPendingReset = false;
+            if (resetPendingTimeout) { clearTimeout(resetPendingTimeout);
+                resetPendingTimeout = null; }
+            gameMode = 'single';
+            banSet = gen.ban;
+            targetSteps = gen.targetSteps;
+            targetType = gen.targetType;
             targetPos = { x: gen.targetX, y: gen.targetY };
             cubePos = { x: gen.startX, y: gen.startY };
             extraGoal = gen.extraGoal || null;
             cubeGroup1.quaternion.identity().normalize();
-            if (gen.startFace !== 2) cubeGroup1.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(FACE_NORMALS[gen.startFace], new THREE.Vector3(0,1,0)));
-            cubeGroup1.position.set(cubePos.x+0.5, CUBE_SIZE/2, cubePos.y+0.5);
+            if (gen.startFace !== 2) cubeGroup1.quaternion.copy(new THREE.Quaternion().setFromUnitVectors(
+                FACE_NORMALS[gen.startFace], new THREE.Vector3(0, 1, 0)));
+            cubeGroup1.position.set(cubePos.x + 0.5, CUBE_SIZE / 2, cubePos.y + 0.5);
             cubeGroup2.visible = false;
             addBan(banGroup1, banSet);
             setTarget(targetGroup1, targetPos.x, targetPos.y, 0x22c55e);
             clear(targetGroup2);
             startState = { x: cubePos.x, y: cubePos.y, quat: cubeGroup1.quaternion.clone() };
             saveMapSnapshot();
-            
+
             if (gen.solutionPath && gen.solutionPath.length > 0) {
                 hintCache = {
                     pos: { x: gen.startX, y: gen.startY },
@@ -595,20 +1100,34 @@
             updateGoalIndicator();
             document.getElementById('mode-display').textContent = '单人';
             const extraDot = document.getElementById('extra-goal-dot');
-            if (extraGoal) { extraDot.style.display = 'inline-block'; extraDot.style.borderColor = '#22c55e'; }
-            else { extraDot.style.display = 'none'; }
+            if (extraGoal) { extraDot.style.display = 'inline-block';
+                extraDot.style.borderColor = '#22c55e'; } else { extraDot.style.display = 'none'; }
             const typeText = targetType === 'shortest' ? '最短路径' : 'K短路径';
-            document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
+            document.getElementById('target-display').textContent =
+                `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
             saveProgress();
         }
 
         function applyDualGen(gen, level) {
-            currentLevel = level; steps = 0; isLevelComplete = false; isAnimating = false;
+            currentLevel = level;
+            steps = 0;
+            isLevelComplete = false;
+            isAnimating = false;
+            isPendingReset = false;
+            if (resetPendingTimeout) { clearTimeout(resetPendingTimeout);
+                resetPendingTimeout = null; }
+            gameMode = 'dual';
             globalBan = gen.ban;
-            c1.pos = gen.c1.pos; c1.target = gen.c1.target; c1.quat.copy(gen.c1.quat);
-            c2.pos = gen.c2.pos; c2.target = gen.c2.target; c2.quat.copy(gen.c2.quat);
-            cubeGroup1.position.set(c1.pos.x+0.5, CUBE_SIZE/2, c1.pos.y+0.5); cubeGroup1.quaternion.copy(c1.quat);
-            cubeGroup2.position.set(c2.pos.x+0.5, CUBE_SIZE/2, c2.pos.y+0.5); cubeGroup2.quaternion.copy(c2.quat);
+            c1.pos = gen.c1.pos;
+            c1.target = gen.c1.target;
+            c1.quat.copy(gen.c1.quat);
+            c2.pos = gen.c2.pos;
+            c2.target = gen.c2.target;
+            c2.quat.copy(gen.c2.quat);
+            cubeGroup1.position.set(c1.pos.x + 0.5, CUBE_SIZE / 2, c1.pos.y + 0.5);
+            cubeGroup1.quaternion.copy(c1.quat);
+            cubeGroup2.position.set(c2.pos.x + 0.5, CUBE_SIZE / 2, c2.pos.y + 0.5);
+            cubeGroup2.quaternion.copy(c2.quat);
             cubeGroup2.visible = true;
             addBan(banGroup1, globalBan);
             setTarget(targetGroup1, c1.target.x, c1.target.y, 0x22c55e);
@@ -644,7 +1163,7 @@
                 const size = Math.min(getRecommendedSize(level), MAX_GRID_SIZE);
                 let gen = null;
                 const dualProb = Math.min(0.75, 0.15 + level * 0.04);
-                const forceDual = devForceDual === true || (devForceDual === null && Math.random() < dualProb);
+                const forceDual = (devPanelOpen && devForceDual === true) || (devForceDual === null && Math.random() < dualProb);
                 if (forceDual) {
                     for (let i = 0; i < 10; i++) {
                         gen = await genDualAsync(size);
@@ -670,6 +1189,11 @@
 
         async function loadLevel(level) {
             if (isGenerating) return;
+            if (nextLevelTimeout) { clearTimeout(nextLevelTimeout);
+                nextLevelTimeout = null; }
+            if (resetPendingTimeout) { clearTimeout(resetPendingTimeout);
+                resetPendingTimeout = null; }
+            isPendingReset = false;
             if (level <= 0) level = 1;
             const recommendedSize = getRecommendedSize(level);
             if (GRID_SIZE < recommendedSize) {
@@ -694,8 +1218,8 @@
             isGenerating = true;
             showLoading();
             const dualProb = Math.min(0.75, 0.15 + level * 0.04);
-            if (devForceDual === true) gameMode = 'dual';
-            else if (devForceDual === false) gameMode = 'single';
+            if (devPanelOpen && devForceDual === true) gameMode = 'dual';
+            else if (devPanelOpen && devForceDual === false) gameMode = 'single';
             else gameMode = Math.random() < dualProb ? 'dual' : 'single';
 
             let gen = null;
@@ -733,13 +1257,14 @@
                         } else {
                             gameMode = 'single';
                             gen = await genSingleAsync(1, GRID_SIZE);
-                            if (gen) { applySingleGen(gen, level); showMessage('双人模式生成失败，切换为单人', 'info', 2000); }
+                            if (gen) { applySingleGen(gen, level);
+                                showMessage('双人模式生成失败，切换为单人', 'info', 2000); }
                         }
                     } else {
                         applyDualGen(gen, level);
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error(e);
             } finally {
                 isGenerating = false;
@@ -748,150 +1273,234 @@
             }
         }
 
-        function roll(dx,dy){
-            if(isAnimating||isLevelComplete||isGenerating||isSearching||isPickingDirection)return;
-            if(gameMode==='single'){
-                const nx=cubePos.x+dx, ny=cubePos.y+dy;
-                if(nx<0||nx>=GRID_SIZE||ny<0||ny>=GRID_SIZE)return;
-                if(banSet.has(`${nx},${ny}`))return;
-                const next=applyMove(cubePos.x,cubePos.y,cubeGroup1.quaternion,dx,dy,banSet);
-                if(!next)return;
-                animData.s1.copy(cubeGroup1.position); animData.qs1.copy(cubeGroup1.quaternion);
-                animData.e1.set(nx+0.5,CUBE_SIZE/2,ny+0.5); animData.qe1.copy(next.quat);
-                animData.dual=false;
-                cubePos.x=nx; cubePos.y=ny; steps++; isAnimating=true; animData.startTime=performance.now();
+        function roll(dx, dy) {
+            if (isAnimating || isLevelComplete || isGenerating || isSearching || isPickingDirection || isPendingReset)
+                return;
+            // 防止模式与视觉不一致（例如单人模式下显示了第二个方块）
+            if (gameMode === 'single' && cubeGroup2.visible) {
+                cubeGroup2.visible = false;
+                clear(targetGroup2);
+            }
+            hintCache = null;
+            if (gameMode === 'single') {
+                const nx = cubePos.x + dx,
+                    ny = cubePos.y + dy;
+                if (nx < 0 || nx >= GRID_SIZE || ny < 0 || ny >= GRID_SIZE) return;
+                if (banSet.has(`${nx},${ny}`)) return;
+                const next = applyMove(cubePos.x, cubePos.y, cubeGroup1.quaternion, dx, dy, banSet);
+                if (!next) return;
+                animData.s1.copy(cubeGroup1.position);
+                animData.qs1.copy(cubeGroup1.quaternion);
+                animData.e1.set(nx + 0.5, CUBE_SIZE / 2, ny + 0.5);
+                animData.qe1.copy(next.quat);
+                animData.dual = false;
+                cubePos.x = nx;
+                cubePos.y = ny;
+                steps++;
+                isAnimating = true;
+                animData.startTime = performance.now();
                 updateUI();
+                updateGoalIndicator();
+                saveProgress();
             } else {
                 const m1 = applyMove(c1.pos.x, c1.pos.y, c1.quat, dx, dy, globalBan);
                 const m2 = applyMove(c2.pos.x, c2.pos.y, c2.quat, dx, dy, globalBan);
-                let f1=m1, f2=m2;
-                if(f1 && f2 && f1.x===f2.x && f1.y===f2.y){ f1=null; f2=null; }
-                if(f1 && !f2 && c2.pos.x===f1.x && c2.pos.y===f1.y) f1=null;
-                if(f2 && !f1 && c1.pos.x===f2.x && c1.pos.y===f2.y) f2=null;
-                if(!f1 && !f2) return;
-                animData.s1.copy(cubeGroup1.position); animData.qs1.copy(c1.quat);
-                animData.s2.copy(cubeGroup2.position); animData.qs2.copy(c2.quat);
-                if(f1){ animData.e1.set(f1.x+0.5,CUBE_SIZE/2,f1.y+0.5); animData.qe1.copy(f1.quat); c1.pos.x=f1.x; c1.pos.y=f1.y; c1.quat.copy(f1.quat); }
-                else { animData.e1.copy(animData.s1); animData.qe1.copy(animData.qs1); }
-                if(f2){ animData.e2.set(f2.x+0.5,CUBE_SIZE/2,f2.y+0.5); animData.qe2.copy(f2.quat); c2.pos.x=f2.x; c2.pos.y=f2.y; c2.quat.copy(f2.quat); }
-                else { animData.e2.copy(animData.s2); animData.qe2.copy(animData.qs2); }
-                animData.dual=true;
-                steps++; isAnimating=true; animData.startTime=performance.now();
+                let f1 = m1,
+                    f2 = m2;
+                if (f1 && f2 && f1.x === f2.x && f1.y === f2.y) { f1 = null;
+                    f2 = null; }
+                if (f1 && !f2 && c2.pos.x === f1.x && c2.pos.y === f1.y) f1 = null;
+                if (f2 && !f1 && c1.pos.x === f2.x && c1.pos.y === f2.y) f2 = null;
+                if (!f1 && !f2) return;
+                animData.s1.copy(cubeGroup1.position);
+                animData.qs1.copy(c1.quat);
+                animData.s2.copy(cubeGroup2.position);
+                animData.qs2.copy(c2.quat);
+                if (f1) { animData.e1.set(f1.x + 0.5, CUBE_SIZE / 2, f1.y + 0.5);
+                    animData.qe1.copy(f1.quat);
+                    c1.pos.x = f1.x;
+                    c1.pos.y = f1.y;
+                    c1.quat.copy(f1.quat); } else { animData.e1.copy(animData.s1);
+                    animData.qe1.copy(animData.qs1); }
+                if (f2) { animData.e2.set(f2.x + 0.5, CUBE_SIZE / 2, f2.y + 0.5);
+                    animData.qe2.copy(f2.quat);
+                    c2.pos.x = f2.x;
+                    c2.pos.y = f2.y;
+                    c2.quat.copy(f2.quat); } else { animData.e2.copy(animData.s2);
+                    animData.qe2.copy(animData.qs2); }
+                animData.dual = true;
+                steps++;
+                isAnimating = true;
+                animData.startTime = performance.now();
                 updateUI();
+                updateGoalIndicator();
+                saveProgress();
             }
         }
 
-        function updateAnim(){
-            if(!isAnimating)return;
-            const t=Math.min((performance.now()-animData.startTime)/DUR,1);
-            const ease=t<0.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
-            cubeGroup1.position.lerpVectors(animData.s1,animData.e1,ease);
-            cubeGroup1.quaternion.slerpQuaternions(animData.qs1,animData.qe1,ease);
-            if(animData.dual){
-                cubeGroup2.position.lerpVectors(animData.s2,animData.e2,ease);
-                cubeGroup2.quaternion.slerpQuaternions(animData.qs2,animData.qe2,ease);
+        function updateAnim() {
+            if (!isAnimating) return;
+            const t = Math.min((performance.now() - animData.startTime) / DUR, 1);
+            const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+            cubeGroup1.position.lerpVectors(animData.s1, animData.e1, ease);
+            cubeGroup1.quaternion.slerpQuaternions(animData.qs1, animData.qe1, ease);
+            if (animData.dual) {
+                cubeGroup2.position.lerpVectors(animData.s2, animData.e2, ease);
+                cubeGroup2.quaternion.slerpQuaternions(animData.qs2, animData.qe2, ease);
             }
-            if(t>=1){
-                cubeGroup1.position.copy(animData.e1); cubeGroup1.quaternion.copy(animData.qe1).normalize();
-                if(animData.dual){ cubeGroup2.position.copy(animData.e2); cubeGroup2.quaternion.copy(animData.qe2).normalize(); }
-                isAnimating=false;
+            if (t >= 1) {
+                cubeGroup1.position.copy(animData.e1);
+                cubeGroup1.quaternion.copy(animData.qe1).normalize();
+                if (animData.dual) { cubeGroup2.position.copy(animData.e2);
+                    cubeGroup2.quaternion.copy(animData.qe2).normalize(); }
+                isAnimating = false;
                 checkWin();
             }
             updateGoalIndicator();
         }
 
-        function checkWin(){
-            if(gameMode==='single'){
-                const at=cubePos.x===targetPos.x&&cubePos.y===targetPos.y, red=topFace(cubeGroup1.quaternion)===2;
+        function checkWin() {
+            if (gameMode === 'single') {
+                const at = cubePos.x === targetPos.x && cubePos.y === targetPos.y,
+                    red = topFace(cubeGroup1.quaternion) === 2;
                 const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
-                if(at&&red&&extraOk&&steps===targetSteps){
-                    isLevelComplete=true; flash(mesh1);
-                    const desc = targetType==='shortest'?'最短路径':'K短路径';
+                if (at && red && extraOk && steps === targetSteps) {
+                    isLevelComplete = true;
+                    if (nextLevelTimeout) { clearTimeout(nextLevelTimeout);
+                        nextLevelTimeout = null; }
+                    flash(mesh1);
+                    const desc = targetType === 'shortest' ? '最短路径' : 'K短路径';
                     showMessage(`完成！${desc}（${steps}步）`, 'success', 2000);
-                    updateUI(); saveProgress();
-                    setTimeout(()=>loadLevel(currentLevel+1),2000);
-                }else if(at&&red&&!extraOk){
+                    updateUI();
+                    updateGoalIndicator();
+                    saveProgress();
+                    nextLevelTimeout = setTimeout(() => loadLevel(currentLevel + 1), 2000);
+                } else if (at && red && !extraOk) {
+                    isPendingReset = true;
+                    hintCache = null;
                     showMessage('额外朝向不符合要求', 'fail', 1500);
-                    setTimeout(resetCurrentMap, 1500);
-                }else if(at&&red){
+                    if (resetPendingTimeout) clearTimeout(resetPendingTimeout);
+                    resetPendingTimeout = setTimeout(resetCurrentMap, 1500);
+                } else if (at && red) {
+                    isPendingReset = true;
+                    hintCache = null;
                     showMessage(`步数不符（目标${targetSteps}步，当前${steps}步）`, 'fail', 1800);
-                    setTimeout(resetCurrentMap, 1800);
+                    if (resetPendingTimeout) clearTimeout(resetPendingTimeout);
+                    resetPendingTimeout = setTimeout(resetCurrentMap, 1800);
                 }
-            }else{
-                const ok1=c1.pos.x===c1.target.x&&c1.pos.y===c1.target.y&&topFace(c1.quat)===2;
-                const ok2=c2.pos.x===c2.target.x&&c2.pos.y===c2.target.y&&topFace(c2.quat)===2;
-                if(ok1&&ok2){
-                    isLevelComplete=true; flash(mesh1); flash(mesh2);
+            } else {
+                const ok1 = c1.pos.x === c1.target.x && c1.pos.y === c1.target.y && topFace(cubeGroup1.quaternion) === 2;
+                const ok2 = c2.pos.x === c2.target.x && c2.pos.y === c2.target.y && topFace(cubeGroup2.quaternion) === 2;
+                if (ok1 && ok2) {
+                    isLevelComplete = true;
+                    if (nextLevelTimeout) { clearTimeout(nextLevelTimeout);
+                        nextLevelTimeout = null; }
+                    flash(mesh1);
+                    flash(mesh2);
                     showMessage(`双人模式完成！${steps}步`, 'success', 2500);
-                    updateUI(); saveProgress();
-                    setTimeout(()=>loadLevel(currentLevel+1),2500);
+                    updateUI();
+                    updateGoalIndicator();
+                    saveProgress();
+                    nextLevelTimeout = setTimeout(() => loadLevel(currentLevel + 1), 2500);
                 }
             }
         }
-        function flash(m){const red=new THREE.MeshStandardMaterial({color:0xef4444,roughness:0.3}); const orig=m.material; m.material=Array(6).fill(red); setTimeout(()=>{m.material=orig;},800);}
 
-        function updateUI(){
-            document.getElementById('grid-size-display').textContent=`${GRID_SIZE}×${GRID_SIZE}`;
-            document.getElementById('level-display').textContent=currentLevel;
-            document.getElementById('steps-display').textContent=steps;
-            document.getElementById('single-info').style.display=gameMode==='single'?'inline':'none';
-            document.getElementById('goal-single').style.display=gameMode==='single'?'flex':'none';
-            document.getElementById('goal-dual').style.display=gameMode==='dual'?'flex':'none';
-            const next=document.getElementById('next-btn');
-            next.disabled=!isLevelComplete; next.style.opacity=isLevelComplete?'1':'0.4';
+        function flash(m) { const red = new THREE.MeshStandardMaterial({ color: 0xef4444, roughness: 0.3 }); const orig = m
+                .material;
+            m.material = Array(6).fill(red);
+            setTimeout(() => { m.material = orig; }, 800); }
+
+        function updateUI() {
+            document.getElementById('grid-size-display').textContent = `${GRID_SIZE}×${GRID_SIZE}`;
+            document.getElementById('level-display').textContent = currentLevel;
+            document.getElementById('steps-display').textContent = steps;
+            document.getElementById('single-info').style.display = gameMode === 'single' ? 'inline' : 'none';
+            document.getElementById('goal-single').style.display = gameMode === 'single' ? 'flex' : 'none';
+            document.getElementById('goal-dual').style.display = gameMode === 'dual' ? 'flex' : 'none';
+            const next = document.getElementById('next-btn');
+            next.disabled = !isLevelComplete;
+            next.style.opacity = isLevelComplete ? '1' : '0.4';
             const hintBtn = document.getElementById('unsolvable-btn');
-            hintBtn.disabled = hintDisabled || isSearching;
+            hintBtn.disabled = hintDisabled || isSearching || isPendingReset;
             const lockBtn = document.getElementById('hint-lock-btn');
             lockBtn.disabled = hintDisabled;
             lockBtn.textContent = hintDisabled ? '🔒' : '🔓';
         }
-        function updateGoalIndicator(){
-            if(gameMode==='single'){
-                const at=cubePos.x===targetPos.x&&cubePos.y===targetPos.y, red=topFace(cubeGroup1.quaternion)===2;
+
+        function updateGoalIndicator() {
+            if (gameMode === 'single') {
+                const at = cubePos.x === targetPos.x && cubePos.y === targetPos.y,
+                    red = topFace(cubeGroup1.quaternion) === 2;
                 const extraOk = checkExtraGoal(cubeGroup1.quaternion, extraGoal);
-                document.getElementById('goal-dot-red').style.borderColor=red?'#4ade80':'rgba(255,255,255,0.2)';
-                document.getElementById('goal-dot-green').style.borderColor=at?'#4ade80':'rgba(255,255,255,0.2)';
+                document.getElementById('goal-dot-red').style.borderColor = red ? '#4ade80' : 'rgba(255,255,255,0.2)';
+                document.getElementById('goal-dot-green').style.borderColor = at ? '#4ade80' : 'rgba(255,255,255,0.2)';
                 const extraDot = document.getElementById('extra-goal-dot');
-                if(extraGoal) {
+                if (extraGoal) {
                     extraDot.style.borderColor = extraOk ? '#4ade80' : 'rgba(255,255,255,0.2)';
                     extraDot.style.display = 'inline-block';
                 } else {
                     extraDot.style.display = 'none';
                 }
-            }else{
-                const r1=topFace(c1.quat)===2, g1=c1.pos.x===c1.target.x&&c1.pos.y===c1.target.y;
-                const r2=topFace(c2.quat)===2, g2=c2.pos.x===c2.target.x&&c2.pos.y===c2.target.y;
-                document.getElementById('d1-red').style.borderColor=r1?'#4ade80':'rgba(255,255,255,0.2)';
-                document.getElementById('d1-green').style.borderColor=g1?'#4ade80':'rgba(255,255,255,0.2)';
-                document.getElementById('d2-red').style.borderColor=r2?'#4ade80':'rgba(255,255,255,0.2)';
-                document.getElementById('d2-green').style.borderColor=g2?'#4ade80':'rgba(255,255,255,0.2)';
+            } else {
+                const r1 = topFace(cubeGroup1.quaternion) === 2,
+                    g1 = c1.pos.x === c1.target.x && c1.pos.y === c1.target.y;
+                const r2 = topFace(cubeGroup2.quaternion) === 2,
+                    g2 = c2.pos.x === c2.target.x && c2.pos.y === c2.target.y;
+                document.getElementById('d1-red').style.borderColor = r1 ? '#4ade80' : 'rgba(255,255,255,0.2)';
+                document.getElementById('d1-green').style.borderColor = g1 ? '#4ade80' : 'rgba(255,255,255,0.2)';
+                document.getElementById('d2-red').style.borderColor = r2 ? '#4ade80' : 'rgba(255,255,255,0.2)';
+                document.getElementById('d2-green').style.borderColor = g2 ? '#4ade80' : 'rgba(255,255,255,0.2)';
             }
         }
         let msgTimeout;
-        function showMessage(t,type='info',d=1500){
-            const el=document.getElementById('message'); el.textContent=t; el.className='show '+type;
-            clearTimeout(msgTimeout); msgTimeout=setTimeout(()=>el.className='',d);
-        }
-        function hideMessage(){document.getElementById('message').className='';}
 
-        function saveProgress(){
+        function showMessage(t, type = 'info', d = 1500) {
+            const el = document.getElementById('message');
+            el.textContent = t;
+            el.className = 'show ' + type;
+            clearTimeout(msgTimeout);
+            msgTimeout = setTimeout(() => el.className = '', d);
+        }
+
+        function hideMessage() { document.getElementById('message').className = ''; }
+
+        function saveProgress() {
             const saveData = {
-                GRID_SIZE, gameMode, currentLevel, steps, isLevelComplete,
-                cubePos, targetPos, banSet: [...banSet], targetSteps, targetType,
+                GRID_SIZE,
+                gameMode,
+                currentLevel,
+                steps,
+                isLevelComplete,
+                cubePos,
+                targetPos,
+                banSet: [...banSet],
+                targetSteps,
+                targetType,
                 extraGoal,
-                startStateQuat: startState ? [startState.quat.x, startState.quat.y, startState.quat.z, startState.quat.w] : null,
-                cubeGroup1Quat: [cubeGroup1.quaternion.x, cubeGroup1.quaternion.y, cubeGroup1.quaternion.z, cubeGroup1.quaternion.w],
+                startStateQuat: startState ? [startState.quat.x, startState.quat.y, startState.quat.z, startState.quat
+                    .w
+                ] : null,
+                cubeGroup1Quat: [cubeGroup1.quaternion.x, cubeGroup1.quaternion.y, cubeGroup1.quaternion.z,
+                    cubeGroup1.quaternion.w
+                ],
                 globalBan: [...globalBan],
-                c1pos: c1.pos, c1target: c1.target, c1quat: [c1.quat.x, c1.quat.y, c1.quat.z, c1.quat.w],
-                c2pos: c2.pos, c2target: c2.target, c2quat: [c2.quat.x, c2.quat.y, c2.quat.z, c2.quat.w],
-                devForceDual, devForceKth, devPanelOpen
+                c1pos: c1.pos,
+                c1target: c1.target,
+                c1quat: [c1.quat.x, c1.quat.y, c1.quat.z, c1.quat.w],
+                c2pos: c2.pos,
+                c2target: c2.target,
+                c2quat: [c2.quat.x, c2.quat.y, c2.quat.z, c2.quat.w],
+                devForceDual,
+                devForceKth,
+                devPanelOpen
             };
             localStorage.setItem('logicflip_save', JSON.stringify(saveData));
         }
 
-        function loadProgress(){
+        function loadProgress() {
             const raw = localStorage.getItem('logicflip_save');
-            if(!raw) return false;
+            if (!raw) return false;
             try {
                 const data = JSON.parse(raw);
                 GRID_SIZE = Math.min(data.GRID_SIZE || 3, MAX_GRID_SIZE);
@@ -903,34 +1512,40 @@
                 devForceKth = data.devForceKth ?? null;
                 devPanelOpen = data.devPanelOpen || false;
                 extraGoal = data.extraGoal || null;
-                if(devPanelOpen) document.getElementById('dev-panel').classList.add('show');
-                if(gameMode === 'single'){
-                    cubePos = data.cubePos || {x:0,y:0};
-                    targetPos = data.targetPos || {x:1,y:1};
+                if (devPanelOpen) document.getElementById('dev-panel').classList.add('show');
+                // 如果开发者面板未打开，忽略强制模式设置
+                if (!devPanelOpen) {
+                    devForceDual = null;
+                    devForceKth = null;
+                }
+                if (gameMode === 'single') {
+                    cubePos = data.cubePos || { x: 0, y: 0 };
+                    targetPos = data.targetPos || { x: 1, y: 1 };
                     banSet = new Set(data.banSet || []);
                     targetSteps = data.targetSteps || 0;
                     targetType = data.targetType || 'shortest';
-                    cubeGroup1.position.set(cubePos.x+0.5, CUBE_SIZE/2, cubePos.y+0.5);
-                    if(data.cubeGroup1Quat) cubeGroup1.quaternion.fromArray(data.cubeGroup1Quat);
+                    cubeGroup1.position.set(cubePos.x + 0.5, CUBE_SIZE / 2, cubePos.y + 0.5);
+                    if (data.cubeGroup1Quat) cubeGroup1.quaternion.fromArray(data.cubeGroup1Quat);
                     else cubeGroup1.quaternion.identity();
                     cubeGroup2.visible = false;
-                    if(data.startStateQuat) startState = { x: cubePos.x, y: cubePos.y, quat: new THREE.Quaternion().fromArray(data.startStateQuat) };
+                    clear(targetGroup2);
+                    if (data.startStateQuat) startState = { x: cubePos.x, y: cubePos.y, quat: new THREE.Quaternion()
+                            .fromArray(data.startStateQuat) };
                     else startState = null;
                     addBan(banGroup1, banSet);
                     setTarget(targetGroup1, targetPos.x, targetPos.y, 0x22c55e);
-                    clear(targetGroup2);
                     saveMapSnapshot();
                 } else {
                     globalBan = new Set(data.globalBan || []);
-                    c1.pos = data.c1pos || {x:0,y:0};
-                    c1.target = data.c1target || {x:1,y:1};
-                    if(data.c1quat) c1.quat.fromArray(data.c1quat);
-                    c2.pos = data.c2pos || {x:0,y:0};
-                    c2.target = data.c2target || {x:1,y:1};
-                    if(data.c2quat) c2.quat.fromArray(data.c2quat);
-                    cubeGroup1.position.set(c1.pos.x+0.5, CUBE_SIZE/2, c1.pos.y+0.5);
+                    c1.pos = data.c1pos || { x: 0, y: 0 };
+                    c1.target = data.c1target || { x: 1, y: 1 };
+                    if (data.c1quat) c1.quat.fromArray(data.c1quat);
+                    c2.pos = data.c2pos || { x: 0, y: 0 };
+                    c2.target = data.c2target || { x: 1, y: 1 };
+                    if (data.c2quat) c2.quat.fromArray(data.c2quat);
+                    cubeGroup1.position.set(c1.pos.x + 0.5, CUBE_SIZE / 2, c1.pos.y + 0.5);
                     cubeGroup1.quaternion.copy(c1.quat);
-                    cubeGroup2.position.set(c2.pos.x+0.5, CUBE_SIZE/2, c2.pos.y+0.5);
+                    cubeGroup2.position.set(c2.pos.x + 0.5, CUBE_SIZE / 2, c2.pos.y + 0.5);
                     cubeGroup2.quaternion.copy(c2.quat);
                     cubeGroup2.visible = true;
                     addBan(banGroup1, globalBan);
@@ -939,24 +1554,35 @@
                     extraGoal = null;
                     saveMapSnapshot();
                 }
-                buildGrid(); updateCam(); updateUI(); updateGoalIndicator();
-                document.getElementById('mode-display').textContent = gameMode==='single'?'单人':'双人';
-                if(gameMode==='single'){
-                    const typeText = targetType==='shortest'?'最短路径':'K短路径';
-                    document.getElementById('target-display').textContent = `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
+                buildGrid();
+                updateCam();
+                updateUI();
+                updateGoalIndicator();
+                document.getElementById('mode-display').textContent = gameMode === 'single' ? '单人' : '双人';
+                if (gameMode === 'single') {
+                    const typeText = targetType === 'shortest' ? '最短路径' : 'K短路径';
+                    document.getElementById('target-display').textContent =
+                        `${targetSteps}步 (${typeText}) 目标(${targetPos.x},${targetPos.y})${extraGoal?' +绿朝右':''}`;
                 }
                 updateDevPanelButtons();
                 return true;
-            } catch(e){ console.error('存档加载失败', e); return false; }
+            } catch (e) { console.error('存档加载失败', e); return false; }
         }
 
-        let devClickCount = 0, devClickTimer = null;
+        let devClickCount = 0,
+            devClickTimer = null;
         document.querySelector('.hud-left span:first-child').addEventListener('click', () => {
             devClickCount++;
-            if(devClickCount >= 5) {
-                devClickCount = 0; devPanelOpen = !devPanelOpen;
+            if (devClickCount >= 5) {
+                devClickCount = 0;
+                devPanelOpen = !devPanelOpen;
                 document.getElementById('dev-panel').classList.toggle('show', devPanelOpen);
-                updateDevPanelButtons(); saveProgress();
+                if (!devPanelOpen) {
+                    devForceDual = null;
+                    devForceKth = null;
+                }
+                updateDevPanelButtons();
+                saveProgress();
             }
             clearTimeout(devClickTimer);
             devClickTimer = setTimeout(() => { devClickCount = 0; }, 1500);
@@ -968,46 +1594,58 @@
         }
 
         document.getElementById('dev-force-dual').addEventListener('click', () => {
+            if (!devPanelOpen) return;
             devForceDual = devForceDual === true ? null : true;
-            updateDevPanelButtons(); saveProgress();
+            updateDevPanelButtons();
+            saveProgress();
             showMessage(devForceDual ? '已强制双人模式' : '已恢复随机', 'info', 1500);
             loadLevel(currentLevel);
         });
         document.getElementById('dev-force-kth').addEventListener('click', () => {
+            if (!devPanelOpen) return;
             devForceKth = devForceKth === true ? null : true;
-            updateDevPanelButtons(); saveProgress();
+            updateDevPanelButtons();
+            saveProgress();
             showMessage(devForceKth ? '已强制K短路径' : '已恢复随机', 'info', 1500);
             loadLevel(currentLevel);
         });
         document.getElementById('dev-reset-force').addEventListener('click', () => {
-            devForceDual = null; devForceKth = null;
-            updateDevPanelButtons(); saveProgress();
+            if (!devPanelOpen) return;
+            devForceDual = null;
+            devForceKth = null;
+            updateDevPanelButtons();
+            saveProgress();
             showMessage('已恢复随机模式', 'info', 1500);
             loadLevel(currentLevel);
         });
         document.getElementById('dev-close').addEventListener('click', () => {
             devPanelOpen = false;
             document.getElementById('dev-panel').classList.remove('show');
+            devForceDual = null;
+            devForceKth = null;
+            updateDevPanelButtons();
             saveProgress();
         });
 
         document.getElementById('hint-lock-btn').addEventListener('click', () => {
             if (hintDisabled) return;
-            hintDisabled = true; updateUI();
+            hintDisabled = true;
+            updateUI();
             showMessage('提示功能已禁用（刷新后恢复）', 'info', 1500);
         });
 
         document.getElementById('unsolvable-btn').addEventListener('click', async () => {
-            if(isAnimating||isLevelComplete||isGenerating||isSearching||isPickingDirection) return;
-            if(hintDisabled && !devPanelOpen) { showMessage('提示功能已禁用', 'fail', 1000); return; }
+            if (isAnimating || isLevelComplete || isGenerating || isSearching || isPickingDirection || isPendingReset)
+                return;
+            if (hintDisabled && !devPanelOpen) { showMessage('提示功能已禁用', 'fail', 1000); return; }
 
             isSearching = true;
             updateUI();
 
-            const dirMap = {'←': [-1,0], '→': [1,0], '↑': [0,-1], '↓': [0,1]};
+            const dirMap = { '←': [-1, 0], '→': [1, 0], '↑': [0, -1], '↓': [0, 1] };
 
             try {
-                if(gameMode === 'single') {
+                if (gameMode === 'single') {
                     if (hintCache && hintCache.pos && hintCache.path.length > 0 &&
                         hintCache.pos.x === cubePos.x && hintCache.pos.y === cubePos.y &&
                         quatStr(hintCache.quat) === quatStr(cubeGroup1.quaternion)) {
@@ -1027,8 +1665,9 @@
                     }
 
                     showLoading();
-                    const solution = await findSingleSolutionAsync(cubePos.x, cubePos.y, cubeGroup1.quaternion, banSet, targetPos.x, targetPos.y, extraGoal);
-                    if(solution && solution.length > 0) {
+                    const solution = await findSingleSolutionAsync(cubePos.x, cubePos.y, cubeGroup1.quaternion, banSet,
+                        targetPos.x, targetPos.y, extraGoal);
+                    if (solution && solution.length > 0) {
                         hintCache = {
                             pos: { x: cubePos.x, y: cubePos.y },
                             quat: cubeGroup1.quaternion.clone(),
@@ -1045,7 +1684,8 @@
                         showMessage(`💡 建议下一步：${nextDir}（距目标约${solution.length}步）`, 'trick', 3500);
                     } else {
                         showMessage('确认无解，进入下一关', 'info', 1500);
-                        setTimeout(() => loadLevel(currentLevel+1), 1500);
+                        if (nextLevelTimeout) clearTimeout(nextLevelTimeout);
+                        nextLevelTimeout = setTimeout(() => loadLevel(currentLevel + 1), 1500);
                     }
                 } else {
                     if (hintCache && hintCache.type === 'dual' && hintCache.path.length > 0 &&
@@ -1061,8 +1701,9 @@
                         return;
                     }
                     showLoading();
-                    const solution = await bfsDualSolutionAsync({pos:c1.pos, quat:c1.quat}, {pos:c2.pos, quat:c2.quat}, c1.target, c2.target, globalBan);
-                    if(solution && solution.length > 0) {
+                    const solution = await bfsDualSolutionAsync({ pos: c1.pos, quat: c1.quat }, { pos: c2.pos,
+                        quat: c2.quat }, c1.target, c2.target, globalBan);
+                    if (solution && solution.length > 0) {
                         hintCache = {
                             type: 'dual',
                             c1pos: { ...c1.pos },
@@ -1074,10 +1715,11 @@
                         showMessage(`💡 建议下一步：${solution[0]}（总${solution.length}步）`, 'trick', 3500);
                     } else {
                         showMessage('确认无解，进入下一关', 'info', 1500);
-                        setTimeout(() => loadLevel(currentLevel+1), 1500);
+                        if (nextLevelTimeout) clearTimeout(nextLevelTimeout);
+                        nextLevelTimeout = setTimeout(() => loadLevel(currentLevel + 1), 1500);
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error(e);
             } finally {
                 isSearching = false;
@@ -1086,36 +1728,42 @@
             }
         });
 
-        const raycaster=new THREE.Raycaster(), mouse=new THREE.Vector2(), plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
-        container.addEventListener('click',e=>{
-            if(isAnimating||isLevelComplete||draftOpen||isGenerating||isSearching||isPickingDirection)return;
-            const rect=container.getBoundingClientRect();
-            mouse.x=((e.clientX-rect.left)/rect.width)*2-1; mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
-            raycaster.setFromCamera(mouse,camera); const pt=new THREE.Vector3();
-            if(raycaster.ray.intersectPlane(plane,pt)){
-                const gx=Math.floor(pt.x), gy=Math.floor(pt.z);
-                if(gx<0||gx>=GRID_SIZE||gy<0||gy>=GRID_SIZE)return;
-                
-                if(gameMode==='single'){
-                    const ref=cubePos;
-                    const dx=gx-ref.x, dy=gy-ref.y;
-                    if(Math.abs(dx)+Math.abs(dy)===1) roll(dx,dy);
+        const raycaster = new THREE.Raycaster(),
+            mouse = new THREE.Vector2(),
+            plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        container.addEventListener('click', e => {
+            if (isAnimating || isLevelComplete || draftOpen || isGenerating || isSearching || isPickingDirection ||
+                isPendingReset) return;
+            const rect = container.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const pt = new THREE.Vector3();
+            if (raycaster.ray.intersectPlane(plane, pt)) {
+                const gx = Math.floor(pt.x),
+                    gy = Math.floor(pt.z);
+                if (gx < 0 || gx >= GRID_SIZE || gy < 0 || gy >= GRID_SIZE) return;
+
+                if (gameMode === 'single') {
+                    const ref = cubePos;
+                    const dx = gx - ref.x,
+                        dy = gy - ref.y;
+                    if (Math.abs(dx) + Math.abs(dy) === 1) roll(dx, dy);
                 } else {
-                    const c1dx = gx - c1.pos.x, c1dy = gy - c1.pos.y;
-                    const c2dx = gx - c2.pos.x, c2dy = gy - c2.pos.y;
+                    const c1dx = gx - c1.pos.x,
+                        c1dy = gy - c1.pos.y;
+                    const c2dx = gx - c2.pos.x,
+                        c2dy = gy - c2.pos.y;
                     const c1Adj = Math.abs(c1dx) + Math.abs(c1dy) === 1;
                     const c2Adj = Math.abs(c2dx) + Math.abs(c2dy) === 1;
-                    
+
                     if (c1Adj && c2Adj) {
                         const dirSame = (c1dx === c2dx && c1dy === c2dy);
                         if (dirSame) {
                             roll(c1dx, c1dy);
                         } else {
-                            showDirectionPicker(
-                                { dx: c1dx, dy: c1dy },
-                                { dx: c2dx, dy: c2dy },
-                                (dx, dy) => roll(dx, dy)
-                            );
+                            showDirectionPicker({ dx: c1dx, dy: c1dy }, { dx: c2dx, dy: c2dy }, (dx, dy) => roll(dx,
+                                dy));
                         }
                     } else if (c1Adj) {
                         roll(c1dx, c1dy);
@@ -1125,57 +1773,110 @@
                 }
             }
         });
-        document.addEventListener('keydown',e=>{
-            if(draftOpen||isGenerating||isSearching||isPickingDirection)return;
-            if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.key)){
-                e.preventDefault(); let dx=0,dy=0;
-                if(e.key==='ArrowUp')dy=-1; else if(e.key==='ArrowDown')dy=1;
-                else if(e.key==='ArrowLeft')dx=-1; else if(e.key==='ArrowRight')dx=1;
-                roll(dx,dy);
+        document.addEventListener('keydown', e => {
+            if (draftOpen || isGenerating || isSearching || isPickingDirection || isPendingReset) return;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
+                e.preventDefault();
+                let dx = 0,
+                    dy = 0;
+                if (e.key === 'ArrowUp') dy = -1;
+                else if (e.key === 'ArrowDown') dy = 1;
+                else if (e.key === 'ArrowLeft') dx = -1;
+                else if (e.key === 'ArrowRight') dx = 1;
+                roll(dx, dy);
             }
-            if(e.key==='r'||e.key==='R'){e.preventDefault(); resetLevel();}
+            if (e.key === 'r' || e.key === 'R') { e.preventDefault();
+                resetLevel(); }
         });
-        document.getElementById('reset-btn').addEventListener('click',resetLevel);
-        document.getElementById('next-btn').addEventListener('click',()=>{if(isLevelComplete&&!isGenerating)loadLevel(currentLevel+1); else if(isGenerating) showMessage('关卡生成中，请稍后','info',1000); else showMessage('请先完成当前关卡','fail',1000);});
+        document.getElementById('reset-btn').addEventListener('click', resetLevel);
+        document.getElementById('next-btn').addEventListener('click', () => {
+            if (nextLevelTimeout) { clearTimeout(nextLevelTimeout);
+                nextLevelTimeout = null; }
+            if (isLevelComplete && !isGenerating) loadLevel(currentLevel + 1);
+            else if (isGenerating) showMessage('关卡生成中，请稍后', 'info', 1000);
+            else showMessage('请先完成当前关卡', 'fail', 1000);
+        });
 
-        function resetLevel(){if(isAnimating||isGenerating||isSearching||isPickingDirection)return; resetCurrentMap(); updateUI(); hideMessage();}
+        function resetLevel() {
+            if (isAnimating || isGenerating || isSearching || isPickingDirection) return;
+            if (resetPendingTimeout) { clearTimeout(resetPendingTimeout);
+                resetPendingTimeout = null; }
+            isPendingReset = false;
+            hintCache = null;
+            resetCurrentMap();
+            updateUI();
+            hideMessage();
+        }
 
-        let draftOpen=false, draftPos={x:0,y:0}, draftQuat=new THREE.Quaternion(), draftSteps=0;
-        function initDraft(){ draftPos={...cubePos}; draftQuat.copy(startState?.quat||new THREE.Quaternion()); draftSteps=0; renderDraft(); }
-        function renderDraft(){
-            const grid=document.getElementById('draft-grid'); grid.style.gridTemplateColumns=`repeat(${GRID_SIZE},48px)`; grid.innerHTML='';
-            for(let y=0;y<GRID_SIZE;y++)for(let x=0;x<GRID_SIZE;x++){
-                const cell=document.createElement('div'); cell.className='draft-cell';
-                if(banSet.has(`${x},${y}`))cell.classList.add('ban');
-                if(x===targetPos.x&&y===targetPos.y)cell.classList.add('target');
-                if(x===draftPos.x&&y===draftPos.y){cell.classList.add('current'); cell.textContent=topFace(draftQuat)===2?'🔴':'⬜';}
-                cell.addEventListener('click',()=>{const dx=x-draftPos.x,dy=y-draftPos.y; if(Math.abs(dx)+Math.abs(dy)===1&&!banSet.has(`${x},${y}`)) draftRoll(dx,dy);});
-                grid.appendChild(cell);
-            }
-            document.getElementById('draft-target-steps').textContent=targetSteps||'-';
-            document.getElementById('draft-steps').textContent=draftSteps;
-            const at=draftPos.x===targetPos.x&&draftPos.y===targetPos.y, red=topFace(draftQuat)===2;
+        let draftOpen = false,
+            draftPos = { x: 0, y: 0 },
+            draftQuat = new THREE.Quaternion(),
+            draftSteps = 0;
+
+        function initDraft() { draftPos = { ...cubePos };
+            draftQuat.copy(startState?.quat || new THREE.Quaternion());
+            draftSteps = 0;
+            renderDraft(); }
+
+        function renderDraft() {
+            const grid = document.getElementById('draft-grid');
+            grid.style.gridTemplateColumns = `repeat(${GRID_SIZE},48px)`;
+            grid.innerHTML = '';
+            for (let y = 0; y < GRID_SIZE; y++)
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'draft-cell';
+                    if (banSet.has(`${x},${y}`)) cell.classList.add('ban');
+                    if (x === targetPos.x && y === targetPos.y) cell.classList.add('target');
+                    if (x === draftPos.x && y === draftPos.y) { cell.classList.add('current');
+                        cell.textContent = topFace(draftQuat) === 2 ? '🔴' : '⬜'; }
+                    cell.addEventListener('click', () => { const dx = x - draftPos.x,
+                            dy = y - draftPos.y; if (Math.abs(dx) + Math.abs(dy) === 1 && !banSet.has(
+                                `${x},${y}`)) draftRoll(dx, dy); });
+                    grid.appendChild(cell);
+                }
+            document.getElementById('draft-target-steps').textContent = targetSteps || '-';
+            document.getElementById('draft-steps').textContent = draftSteps;
+            const at = draftPos.x === targetPos.x && draftPos.y === targetPos.y,
+                red = topFace(draftQuat) === 2;
             const extraOk = checkExtraGoal(draftQuat, extraGoal);
-            document.getElementById('draft-status').textContent=at&&red&&extraOk&&draftSteps===targetSteps?'✅':at&&red&&extraOk?'🎯':at?'📍':red?'🔴':'⬜';
+            document.getElementById('draft-status').textContent = at && red && extraOk && draftSteps === targetSteps ?
+                '✅' : at && red && extraOk ? '🎯' : at ? '📍' : red ? '🔴' : '⬜';
         }
-        function draftRoll(dx,dy){
-            const next=applyMove(draftPos.x,draftPos.y,draftQuat,dx,dy,banSet); if(!next)return;
-            draftPos.x=next.x; draftPos.y=next.y; draftQuat.copy(next.quat); draftSteps++; renderDraft();
+
+        function draftRoll(dx, dy) {
+            const next = applyMove(draftPos.x, draftPos.y, draftQuat, dx, dy, banSet);
+            if (!next) return;
+            draftPos.x = next.x;
+            draftPos.y = next.y;
+            draftQuat.copy(next.quat);
+            draftSteps++;
+            renderDraft();
         }
-        document.getElementById('draft-btn').addEventListener('click',()=>{
-            if(gameMode!=='single'){showMessage('推演仅限单人模式','info',1000);return;}
-            draftOpen=true; document.getElementById('draft-modal').classList.add('show'); initDraft();
+        document.getElementById('draft-btn').addEventListener('click', () => {
+            if (gameMode !== 'single') { showMessage('推演仅限单人模式', 'info', 1000); return; }
+            draftOpen = true;
+            document.getElementById('draft-modal').classList.add('show');
+            initDraft();
         });
-        document.getElementById('draft-close').addEventListener('click',()=>{draftOpen=false;document.getElementById('draft-modal').classList.remove('show');});
-        document.getElementById('draft-reset').addEventListener('click',()=>{if(draftOpen)initDraft();});
-        ['up','down','left','right'].forEach(d=>document.getElementById('draft-'+d).addEventListener('click',()=>{
-            const m={up:[0,-1],down:[0,1],left:[-1,0],right:[1,0]}; draftRoll(...m[d]);
-        }));
+        document.getElementById('draft-close').addEventListener('click', () => { draftOpen = false;
+            document.getElementById('draft-modal').classList.remove('show'); });
+        document.getElementById('draft-reset').addEventListener('click', () => { if (draftOpen) initDraft(); });
+        ['up', 'down', 'left', 'right'].forEach(d => document.getElementById('draft-' + d).addEventListener('click',
+            () => {
+                const m = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+                draftRoll(...m[d]);
+            }));
 
-        window.addEventListener('resize',()=>{camera.aspect=container.clientWidth/container.clientHeight;camera.updateProjectionMatrix();renderer.setSize(container.clientWidth,container.clientHeight);});
-        function animate(){requestAnimationFrame(animate); updateAnim(); renderer.render(scene,camera);}
+        window.addEventListener('resize', () => { camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight); });
 
-        if(!loadProgress()){
+        function animate() { requestAnimationFrame(animate);
+            updateAnim();
+            renderer.render(scene, camera); }
+
+        if (!loadProgress()) {
             GRID_SIZE = getRecommendedSize(1);
             buildGrid();
             updateCam();
